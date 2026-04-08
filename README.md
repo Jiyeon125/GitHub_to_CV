@@ -1,6 +1,6 @@
 # GitHub 개발자 활동 리포트 PoC
 
-GitHub 활동 리포트 서비스의 **1단계 검증**을 위해 만든 Next.js + TypeScript 최소 PoC입니다.
+GitHub 공개 프로필·저장소를 가져와 대표 레포 3개와 요약을 보여 주는 **1단계 검증용** Next.js 앱입니다.
 
 ## 이 PoC가 하는 일
 
@@ -12,41 +12,24 @@ GitHub 활동 리포트 서비스의 **1단계 검증**을 위해 만든 Next.js
 - 주요 언어, README 존재 여부 등을 요약해 보여 줍니다.
 - 로딩·빈 결과·에러 상태를 처리합니다.
 
-## 실행 방법 (pnpm 데모)
 
-1. pnpm 설치(최초 1회):
+## 실행
 
-```bash
-corepack enable
-corepack prepare pnpm@latest --activate
-```
-
-2. 의존성 설치:
+1. [Node.js LTS](https://nodejs.org) 설치
+2. pnpm이 없으면 한 번만 전역 설치: `npm install -g pnpm`
+3. 프로젝트 루트에서:
 
 ```bash
 pnpm install
-```
-
-3. (선택) API 호출 한도를 넉넉히 쓰려면 토큰 설정:
-
-```bash
-# macOS / Linux
-export GITHUB_TOKEN=your_token_here
-
-# Windows PowerShell
-$env:GITHUB_TOKEN="your_token_here"
-```
-
-4. 개발 서버 실행:
-
-```bash
 pnpm dev
 ```
 
-5. 브라우저에서 http://localhost:3000 열기
+4. 브라우저에서 http://localhost:3000
 
+### (선택) GitHub 토큰
 
-## 참고
+API 호출 한도를 넉넉히 쓰려면 환경 변수 `GITHUB_TOKEN`을 설정합니다. 없어도 동작하지만 rate limit에 더 빨리 걸릴 수 있습니다.
 
-- `GITHUB_TOKEN`이 없어도 동작하지만, GitHub API **속도 제한(rate limit)** 에 더 빨리 걸릴 수 있습니다.
-- 인증, DB 저장, 차트, 내보내기, LLM 요약 등은 현재 poc 단계에서 의도적으로 포함하지 않았습니다.
+## 범위
+
+인증·DB·차트·PDF·LLM 요약 등은 포함하지 않습니다.
