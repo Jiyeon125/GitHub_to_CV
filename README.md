@@ -30,6 +30,12 @@ pnpm dev
 
 API 호출 한도를 넉넉히 쓰려면 환경 변수 `GITHUB_TOKEN`을 설정합니다. 없어도 동작하지만 rate limit에 더 빨리 걸릴 수 있습니다.
 
+## CI
+
+`main`·`develop`에 푸시하거나 위 브랜치로 PR을 열면 GitHub Actions에서 `pnpm lint` → `pnpm build` 순으로 실행합니다. Vercel 배포 전에 로컬에서도 `pnpm lint`로 확인할 수 있습니다.
+
+추후 Vercel을 통해 배포 예정입니다.
+
 ## 범위
 
 인증·DB·차트·PDF·LLM 요약 등은 포함하지 않습니다.
