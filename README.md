@@ -1,47 +1,52 @@
-# GitHub Developer Activity Report PoC
+# GitHub 개발자 활동 리포트 PoC
 
-Minimal Next.js + TypeScript proof-of-concept for validating stage 1 of a GitHub activity report service.
+GitHub 활동 리포트 서비스의 **1단계 검증**을 위해 만든 Next.js + TypeScript 최소 PoC입니다.
 
-## What this PoC does
+## 이 PoC가 하는 일
 
-- Accepts a GitHub username.
-- Calls `/api/analyze`.
-- Fetches public profile and repositories from GitHub REST API.
-- Applies explicit rule-based repository scoring.
-- Shows top 3 representative repositories.
-- Shows compact summary including top language and README checks.
-- Handles loading, empty, and error states.
+- GitHub 사용자명을 입력받습니다.
+- `/api/analyze`를 호출합니다.
+- GitHub REST API로 **공개 프로필·공개 저장소**를 가져옵니다.
+- 규칙 기반으로 저장소 점수를 매깁니다.
+- 대표 저장소 **상위 3개**를 보여 줍니다.
+- 주요 언어, README 존재 여부 등을 요약해 보여 줍니다.
+- 로딩·빈 결과·에러 상태를 처리합니다.
 
-## Setup
+## 실행 방법 (pnpm 데모)
 
-1. Install dependencies:
+1. pnpm 설치(최초 1회):
 
 ```bash
-npm install
+corepack enable
+corepack prepare pnpm@latest --activate
 ```
 
-2. Optional: set a token for higher rate limits:
+2. 의존성 설치:
 
 ```bash
+pnpm install
+```
+
+3. (선택) API 호출 한도를 넉넉히 쓰려면 토큰 설정:
+
+```bash
+# macOS / Linux
 export GITHUB_TOKEN=your_token_here
+
+# Windows PowerShell
+$env:GITHUB_TOKEN="your_token_here"
 ```
 
-3. Run the app:
+4. 개발 서버 실행:
 
 ```bash
-npm run dev
+pnpm dev
 ```
 
-4. Open http://localhost:3000
+5. 브라우저에서 http://localhost:3000 열기
 
-## Sample usernames
 
-- `torvalds`
-- `gaearon`
-- `yyx990803`
-- `sindresorhus`
+## 참고
 
-## Notes
-
-- If `GITHUB_TOKEN` is missing, the API still works but may hit stricter rate limits.
-- This intentionally excludes auth, persistence, charts, exports, and LLM summarization.
+- `GITHUB_TOKEN`이 없어도 동작하지만, GitHub API **속도 제한(rate limit)** 에 더 빨리 걸릴 수 있습니다.
+- 인증, DB 저장, 차트, 내보내기, LLM 요약 등은 현재 poc 단계에서 의도적으로 포함하지 않았습니다.
