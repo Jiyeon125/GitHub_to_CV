@@ -15,6 +15,21 @@ const BASE_HEADERS: HeadersInit = {
   "X-GitHub-Api-Version": "2022-11-28",
 };
 
+const GITHUB_USERNAME_REGEX = /^(?!-)(?!.*--)[A-Za-z0-9-]{1,39}(?<!-)$/;
+const RATE_LIMIT_WINDOW_MS = 60_000;
+const RATE_LIMIT_MAX_REQUESTS = 20;
+const rateLimitStore = new Map<string, { count: number; resetAt: number }>();
+
+class ApiError extends Error {
+  constructor(
+    public readonly status: number,
+    public readonly publicMessage: string,
+    public readonly logMessage: string,
+  ) {
+    super(logMessage);
+  }
+}
+
 function buildHeaders() {
   const token = process.env.GITHUB_TOKEN;
   if (!token) {
@@ -35,16 +50,22 @@ async function fetchGitHub<T>(url: string): Promise<T> {
 
   if (!response.ok) {
     if (response.status === 404) {
-      throw new Error("GitHub user not found.");
+      throw new ApiError(404, "GitHub user not found.", `GitHub 404 for URL: ${url}`);
     }
 
     if (response.status === 403) {
-      throw new Error(
-        "GitHub rate limit exceeded. Add GITHUB_TOKEN for higher limits or try later.",
+      throw new ApiError(
+        429,
+        "External API rate limit reached. Try again shortly.",
+        `GitHub 403 rate limit for URL: ${url}`,
       );
     }
 
-    throw new Error(`GitHub API request failed with status ${response.status}.`);
+    throw new ApiError(
+      502,
+      "Failed to fetch data from GitHub.",
+      `GitHub API failed with status ${response.status} for URL: ${url}`,
+    );
   }
 
   return response.json();
@@ -59,13 +80,58 @@ async function hasReadme(owner: string, repo: string): Promise<boolean> {
   return response.ok;
 }
 
+function isValidGitHubUsername(username: string) {
+  return GITHUB_USERNAME_REGEX.test(username);
+}
+
+function getClientIp(request: NextRequest) {
+  const forwardedFor = request.headers.get("x-forwarded-for");
+  if (forwardedFor) {
+    return forwardedFor.split(",")[0]?.trim() || "unknown";
+  }
+
+  return request.headers.get("x-real-ip")?.trim() || "unknown";
+}
+
+function enforceRateLimit(clientIp: string) {
+  const now = Date.now();
+  const current = rateLimitStore.get(clientIp);
+
+  if (!current || now > current.resetAt) {
+    rateLimitStore.set(clientIp, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
+    return;
+  }
+
+  if (current.count >= RATE_LIMIT_MAX_REQUESTS) {
+    throw new ApiError(
+      429,
+      "Too many requests. Please try again in a minute.",
+      `Rate limit exceeded for IP: ${clientIp}`,
+    );
+  }
+
+  current.count += 1;
+  rateLimitStore.set(clientIp, current);
+}
+
 export async function POST(request: NextRequest) {
   try {
+    const clientIp = getClientIp(request);
+    enforceRateLimit(clientIp);
+
     const body = await request.json();
     const username = String(body?.username ?? "").trim();
 
     if (!username) {
-      return NextResponse.json({ error: "Username is required." }, { status: 400 });
+      throw new ApiError(400, "Username is required.", "Missing username in request body");
+    }
+
+    if (!isValidGitHubUsername(username)) {
+      throw new ApiError(
+        400,
+        "Invalid GitHub username format.",
+        `Invalid GitHub username received: ${username}`,
+      );
     }
 
     const user = await fetchGitHub<{ public_repos: number; html_url: string }>(
@@ -111,7 +177,12 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(payload);
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unexpected server error.";
-    return NextResponse.json({ error: message }, { status: 500 });
+    if (error instanceof ApiError) {
+      console.error(`[analyze] ${error.logMessage}`);
+      return NextResponse.json({ error: error.publicMessage }, { status: error.status });
+    }
+
+    console.error("[analyze] Unexpected server error", error);
+    return NextResponse.json({ error: "Unexpected server error." }, { status: 500 });
   }
 }
