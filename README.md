@@ -134,8 +134,22 @@ GEMINI_API_KEY=
 | `OPENAI_API_KEY` | OpenAI 기반 LLM 요약 활성화. 우선 사용. |
 | `GEMINI_API_KEY` | Gemini 기반 LLM 요약 활성화. OpenAI 키가 없을 때 사용. |
 | `OPENAI_MODEL` / `GEMINI_MODEL` | 모델명 오버라이드 (선택). |
+| `LLM_TEMPERATURE` | 기본 0. 호출마다 비슷한 결과를 받기 위한 샘플링 온도. 0~0.3 권장. |
 
 LLM 키가 모두 없으면 사이드바의 "LLM 요약 생성" 을 켜도 자동으로 규칙 기반 결과만 표시되며, 응답 경고 박스에 안내가 노출됩니다.
+
+### LLM 재현성 (determinism)
+
+같은 사용자에 대해 여러 번 분석해도 비슷한 어휘/문장이 나오도록 다음 장치를 적용했습니다.
+
+- **샘플링 파라미터를 greedy 에 가깝게 고정**
+  - OpenAI: `temperature=0`, `top_p=1`, `frequency_penalty=0`, `presence_penalty=0`, `seed=<payload 해시>`
+  - Gemini: `temperature=0`, `topP=1`, `topK=1` (그리디 디코딩에 가까움, native seed 미지원)
+- **입력 페이로드 stable serialization**: 객체 key 를 알파벳 순으로 정렬해 직렬화하므로 같은 입력 → 항상 같은 문자열이 모델로 들어감 (`stableStringify`)
+- **결정적 seed 계산**: `(프롬프트 버전 + 정렬된 payload)` 의 32-bit 해시를 OpenAI seed 로 전달. 프롬프트 본문이 바뀌면 `PROMPT_VERSION` 도 함께 올려 seed 가 자동 무효화됨
+- **프롬프트 자유도 축소**: headline / portfolio_sentence / resume_bullet 의 종결 어휘를 화이트리스트로 제한, 길이·항목 수를 정수로 고정, 1개의 few-shot 예시로 톤·구조 잠금
+
+> Gemini 는 OpenAI 와 달리 native seed 가 없어 완전한 byte 단위 재현은 보장되지 않지만, 위 설정만으로도 어휘/문장 구조의 큰 변동은 사라집니다.
 
 ## 테스트 / 동작 확인 가이드
 
