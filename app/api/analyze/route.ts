@@ -5,7 +5,7 @@ type AnalyzeResponse = {
   username: string;
   profileUrl: string;
   publicRepos: number;
-  selectedRepos: Array<ReturnType<typeof rankRepresentativeRepos>[number]>;
+  selectedRepos: Array<ReturnType<typeof rankRepresentativeRepos>[number] & { hasReadme: boolean }>;
   topLanguage: string;
   summary: string;
 };
