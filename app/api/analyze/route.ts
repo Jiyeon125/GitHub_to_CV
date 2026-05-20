@@ -18,6 +18,8 @@ const BASE_HEADERS: HeadersInit = {
 const GITHUB_USERNAME_REGEX = /^(?!-)(?!.*--)[A-Za-z0-9-]{1,39}(?<!-)$/;
 const RATE_LIMIT_WINDOW_MS = 60_000;
 const RATE_LIMIT_MAX_REQUESTS = 20;
+// 메모리 기반 제한: 만료된 키를 정리해 Map이 무한히 커지는 것을 방지합니다.
+// 다중 인스턴스/서버리스 프로덕션에서는 공유 저장소(Redis, Upstash 등)를 사용하세요.
 const rateLimitStore = new Map<string, { count: number; resetAt: number }>();
 
 class ApiError extends Error {
@@ -71,6 +73,29 @@ async function fetchGitHub<T>(url: string): Promise<T> {
   return response.json();
 }
 
+const GITHUB_REPOS_PER_PAGE = 100;
+
+async function fetchAllUserRepos(username: string): Promise<GitHubRepo[]> {
+  const repos: GitHubRepo[] = [];
+  let page = 1;
+
+  while (true) {
+    const batch = await fetchGitHub<GitHubRepo[]>(
+      `https://api.github.com/users/${username}/repos?sort=updated&per_page=${GITHUB_REPOS_PER_PAGE}&page=${page}`,
+    );
+
+    repos.push(...batch);
+
+    if (batch.length < GITHUB_REPOS_PER_PAGE) {
+      break;
+    }
+
+    page += 1;
+  }
+
+  return repos;
+}
+
 async function hasReadme(owner: string, repo: string): Promise<boolean> {
   const response = await fetch(`https://api.github.com/repos/${owner}/${repo}/readme`, {
     headers: buildHeaders(),
@@ -93,8 +118,18 @@ function getClientIp(request: NextRequest) {
   return request.headers.get("x-real-ip")?.trim() || "unknown";
 }
 
+function pruneExpiredRateLimitEntries(now: number) {
+  for (const [key, entry] of rateLimitStore) {
+    if (now > entry.resetAt) {
+      rateLimitStore.delete(key);
+    }
+  }
+}
+
 function enforceRateLimit(clientIp: string) {
   const now = Date.now();
+  pruneExpiredRateLimitEntries(now);
+
   const current = rateLimitStore.get(clientIp);
 
   if (!current || now > current.resetAt) {
@@ -138,9 +173,7 @@ export async function POST(request: NextRequest) {
       `https://api.github.com/users/${username}`,
     );
 
-    const repos = await fetchGitHub<GitHubRepo[]>(
-      `https://api.github.com/users/${username}/repos?sort=updated&per_page=100`,
-    );
+    const repos = await fetchAllUserRepos(username);
 
     if (!repos.length) {
       const emptyPayload: AnalyzeResponse = {
