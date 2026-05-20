@@ -119,7 +119,7 @@ export async function POST(request: NextRequest) {
     const clientIp = getClientIp(request);
     enforceRateLimit(clientIp);
 
-    const body = await request.json();
+    const body = await request.json().catch(() => null);
     const username = String(body?.username ?? "").trim();
 
     if (!username) {
