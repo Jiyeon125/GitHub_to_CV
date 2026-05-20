@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "GitHub Developer Activity Report PoC",
-  description: "PoC for validating rule-based GitHub developer report generation.",
+  title: "GitHub 개발 활동 리포트",
+  description: "GitHub 공개 저장소 기반 개발자 활동 리포트 MVP",
 };
 
 export default function RootLayout({
@@ -12,7 +12,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="ko">
       <body>{children}</body>
     </html>
   );
