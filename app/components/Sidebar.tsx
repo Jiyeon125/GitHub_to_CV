@@ -105,8 +105,8 @@ export default function Sidebar({
           ) : (
             <div className="flex items-center justify-between gap-2">
               <div>
-                <p className="text-xs font-medium text-foreground">로그인 안 됨</p>
-                <p className="text-[11px] text-muted-foreground">private 분석을 쓰려면 로그인 필요</p>
+                <p className="text-xs font-medium text-foreground">로그인되지 않음</p>
+                <p className="text-[11px] text-muted-foreground">private 분석을 쓰려면 로그인이 필요합니다.</p>
               </div>
               <button
                 type="button"

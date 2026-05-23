@@ -104,6 +104,11 @@ export default function Dashboard({ data }: Props) {
           <TechStackPanel
             techStack={data.techStackDistribution}
             languages={data.languageDistribution}
+            techDenominator={Math.max(1, data.selectedRepos.length)}
+            languageDenominator={Math.max(
+              1,
+              data.languageDistribution.reduce((sum, item) => sum + item.count, 0),
+            )}
           />
           <ActivityPanel pattern={data.activityPattern} />
         </div>

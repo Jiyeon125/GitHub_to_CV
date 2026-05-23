@@ -64,7 +64,7 @@ export default function ActivityPanel({ pattern }: Props) {
       )}
 
       <p className="text-xs text-muted-foreground/60 mt-3">
-        commit timestamp를 KST(UTC+9)로 환산한 경향치이며 실제와 차이가 있을 수 있습니다.
+        commit timestamp를 KST(UTC+9)로 환산해 최근 12주 분산 중심으로 계산한 경향치입니다.
       </p>
     </div>
   );

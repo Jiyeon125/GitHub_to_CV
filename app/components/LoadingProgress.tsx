@@ -61,7 +61,8 @@ export default function LoadingProgress({ useLlm }: Props) {
         </div>
 
         <p className="text-xs text-muted-foreground mt-6">
-          단계별 안내는 8~10초 간격으로 갱신됩니다. 전체 소요 시간은 보통 {totalMin}~{totalMax}초입니다.
+          분석 완료까지는 평균 {totalMin}~{totalMax}초가 소요됩니다. 
+          분석 내용이 많을 경우 소요 시간이 증가할 수 있습니다.
         </p>
       </div>
     </div>

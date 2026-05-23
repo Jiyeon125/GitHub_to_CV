@@ -26,7 +26,9 @@ function ratio(num: number, denom: number): number {
 }
 
 // 날짜 분포의 균일성: 활동 일자가 얼마나 고르게 퍼져 있는가
-// (스피어만/표준편차 대신 단순한 "활동일/관측일" 비율을 사용)
+// 기존에는 "활동일/관측일(spanDays)" 단일 비율을 사용했는데,
+// 관측 구간이 길고 커밋이 듬성듬성인 사용자에게 과도하게 낮게 나오는 문제가 있었다.
+// 현재는 최근 구간에서 "주 단위 분산"을 중심으로 계산해 점수를 완화한다.
 function calculateConsistency(commits: RepoCommit[]): number {
   if (commits.length === 0) return 0;
 
@@ -37,19 +39,47 @@ function calculateConsistency(commits: RepoCommit[]): number {
 
   if (dates.length < 2) return 0;
 
-  const earliest = dates[0]!.getTime();
   const latest = dates[dates.length - 1]!.getTime();
-  const spanDays = Math.max(1, Math.ceil((latest - earliest) / (1000 * 60 * 60 * 24)));
+
+  // 최근 12주 관측창으로 제한: 오래된 한두 커밋 때문에 일관성이 과소평가되는 문제를 완화
+  const WINDOW_DAYS = 84;
+  const windowStart = latest - WINDOW_DAYS * 24 * 60 * 60 * 1000;
+  const recentDates = dates.filter((d) => d.getTime() >= windowStart);
+  const targetDates = recentDates.length >= 2 ? recentDates : dates;
+
+  const earliest = targetDates[0]!.getTime();
+  const spanDays = Math.max(
+    1,
+    Math.ceil((latest - earliest) / (1000 * 60 * 60 * 24)) + 1,
+  );
 
   // 활동한 고유 날짜 수 (KST 기준 날짜로 묶기)
   const uniqueDates = new Set(
-    dates.map((d) => {
+    targetDates.map((d) => {
       const shifted = new Date(d.getTime() + KST_OFFSET_HOURS * 60 * 60 * 1000);
       return `${shifted.getUTCFullYear()}-${shifted.getUTCMonth()}-${shifted.getUTCDate()}`;
     }),
   );
 
-  return Math.min(1, Math.round((uniqueDates.size / spanDays) * 100) / 100);
+  // 활동한 고유 주 수 (KST 기준)
+  const uniqueWeeks = new Set(
+    targetDates.map((d) => {
+      const shifted = new Date(d.getTime() + KST_OFFSET_HOURS * 60 * 60 * 1000);
+      const dayIndex = Math.floor(shifted.getTime() / (24 * 60 * 60 * 1000));
+      return Math.floor(dayIndex / 7);
+    }),
+  );
+
+  const spanWeeks = Math.max(1, Math.ceil(spanDays / 7));
+  const daySpread = uniqueDates.size / spanDays;
+  const weekSpread = uniqueWeeks.size / spanWeeks;
+
+  // 주 단위 분산을 더 크게 반영하고, 일 단위 분산은 보조 신호로 사용
+  const blended = 0.35 * daySpread + 0.65 * weekSpread;
+
+  // 표본이 아주 적을 때는 신뢰도를 낮추되, 과도하게 깎이지 않게 0.6~1 범위로 완화
+  const sampleFactor = Math.min(1, Math.max(0.6, targetDates.length / 10));
+  return Math.min(1, Math.round(blended * sampleFactor * 100) / 100);
 }
 
 function deriveActivityTags(

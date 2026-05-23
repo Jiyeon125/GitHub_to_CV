@@ -25,13 +25,20 @@ const langColors: Record<string, string> = {
 type Props = {
   techStack: DistributionItem[];
   languages: Array<{ language: string; count: number }>;
+  techDenominator: number;
+  languageDenominator: number;
 };
 
-export default function TechStackPanel({ techStack, languages }: Props) {
+export default function TechStackPanel({
+  techStack,
+  languages,
+  techDenominator,
+  languageDenominator,
+}: Props) {
   const techTop = techStack.slice(0, 8);
   const langTop = languages.slice(0, 6);
-  const techMax = techTop[0]?.count ?? 1;
-  const langMax = langTop[0]?.count ?? 1;
+  const safeTechDenominator = Math.max(1, techDenominator);
+  const safeLanguageDenominator = Math.max(1, languageDenominator);
 
   return (
     <div className="bg-card border border-border rounded-xl p-6">
@@ -44,15 +51,20 @@ export default function TechStackPanel({ techStack, languages }: Props) {
           감지된 기술 스택이 없습니다. 설정 파일이 부족할 수 있습니다.
         </p>
       ) : (
-        <div className="space-y-1 mb-6">
-          {techTop.map((item) => (
-            <BarChartRow
-              key={item.name}
-              label={item.name}
-              value={Math.round((item.count / techMax) * 100)}
-            />
-          ))}
-        </div>
+        <>
+          <div className="space-y-1 mb-2">
+            {techTop.map((item) => (
+              <BarChartRow
+                key={item.name}
+                label={item.name}
+                value={Math.round((item.count / safeTechDenominator) * 100)}
+              />
+            ))}
+          </div>
+          <p className="text-[11px] text-muted-foreground mb-6">
+            대표 저장소 {safeTechDenominator}개 중 해당 스택이 감지된 비율
+          </p>
+        </>
       )}
 
       <h4 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-3">
@@ -61,16 +73,21 @@ export default function TechStackPanel({ techStack, languages }: Props) {
       {langTop.length === 0 ? (
         <p className="text-sm text-muted-foreground">언어 정보를 가져오지 못했습니다.</p>
       ) : (
-        <div className="space-y-1">
-          {langTop.map((item) => (
-            <BarChartRow
-              key={item.language}
-              label={item.language}
-              value={Math.round((item.count / langMax) * 100)}
-              color={langColors[item.language] || "#7C6AF7"}
-            />
-          ))}
-        </div>
+        <>
+          <div className="space-y-1 mb-2">
+            {langTop.map((item) => (
+              <BarChartRow
+                key={item.language}
+                label={item.language}
+                value={Math.round((item.count / safeLanguageDenominator) * 100)}
+                color={langColors[item.language] || "#7C6AF7"}
+              />
+            ))}
+          </div>
+          <p className="text-[11px] text-muted-foreground">
+            언어가 감지된 저장소 분포 기준 비율
+          </p>
+        </>
       )}
     </div>
   );
