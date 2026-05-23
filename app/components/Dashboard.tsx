@@ -28,8 +28,11 @@ export default function Dashboard({ data }: Props) {
     <div className="dashboard">
       <section className="dashboard-top">
         <div className="disclaimer-banner" role="note">
-          이 리포트는 GitHub 공개 저장소 데이터를 기반으로 한 추정 결과입니다.
-          private repo 활동과 외부 기여는 반영되지 않으며, 결과는 검토 후 사용해주세요.
+          {data.mode === "self" && data.privateIncluded
+            ? "이 리포트는 본인 계정의 저장소(private 포함) 를 기반으로 한 추정 결과입니다. 결과는 검토 후 사용해주세요."
+            : data.mode === "self"
+              ? "이 리포트는 본인 계정의 공개 저장소를 기반으로 한 추정 결과입니다. private repo 는 사이드바에서 동의 후 포함시킬 수 있습니다."
+              : "이 리포트는 GitHub 공개 저장소 데이터를 기반으로 한 추정 결과입니다. private repo 활동과 외부 기여는 반영되지 않으며, 결과는 검토 후 사용해주세요."}
         </div>
 
         <div className="headline-card">
@@ -37,7 +40,14 @@ export default function Dashboard({ data }: Props) {
             <a href={data.profileUrl} target="_blank" rel="noreferrer">
               @{data.username}
             </a>{" "}
-            · 공개 repo {data.publicRepos}개 · 주 언어 {data.topLanguage}
+            ·{" "}
+            {data.mode === "self" && data.privateIncluded
+              ? `${data.publicRepos}개 저장소(private ${data.privateRepoCount}개 포함)`
+              : `공개 repo ${data.publicRepos}개`}
+            {" "}· 주 언어 {data.topLanguage}
+            {data.mode === "self" && (
+              <span className="badge-inline">본인 계정</span>
+            )}
             {data.cached && <span className="muted small"> · 캐시된 결과</span>}
           </p>
           <h2 className="headline">

@@ -24,18 +24,26 @@ const BASE_HEADERS: HeadersInit = {
 
 const GITHUB_REPOS_PER_PAGE = 100;
 
-function buildHeaders(): HeadersInit {
-  const token = process.env.GITHUB_TOKEN;
+// GitHub API 호출 시 사용할 토큰 컨텍스트.
+// - userAccessToken: NextAuth 로 받은 본인의 OAuth access token (있으면 우선)
+// - 없으면 서비스 공용 GITHUB_TOKEN(.env) 사용
+// - 둘 다 없으면 미인증 호출(시간당 60회 제한)
+export type GitHubAuth = {
+  userAccessToken?: string | null;
+};
+
+function buildHeaders(auth?: GitHubAuth): HeadersInit {
+  const token = auth?.userAccessToken || process.env.GITHUB_TOKEN;
   return token
     ? { ...BASE_HEADERS, Authorization: `Bearer ${token}` }
     : BASE_HEADERS;
 }
 
-async function fetchGitHub<T>(url: string): Promise<T> {
+async function fetchGitHub<T>(url: string, auth?: GitHubAuth): Promise<T> {
   let response: Response;
   try {
     response = await fetch(url, {
-      headers: buildHeaders(),
+      headers: buildHeaders(auth),
       next: { revalidate: 0 },
     });
   } catch (error) {
@@ -83,10 +91,10 @@ async function fetchGitHub<T>(url: string): Promise<T> {
 }
 
 // 404/실패 시 null 을 반환하는 헬퍼 (README, tree 등은 없을 수 있다)
-async function fetchGitHubOptional<T>(url: string): Promise<T | null> {
+async function fetchGitHubOptional<T>(url: string, auth?: GitHubAuth): Promise<T | null> {
   try {
     const response = await fetch(url, {
-      headers: buildHeaders(),
+      headers: buildHeaders(auth),
       next: { revalidate: 0 },
     });
     if (!response.ok) return null;
@@ -96,10 +104,10 @@ async function fetchGitHubOptional<T>(url: string): Promise<T | null> {
   }
 }
 
-async function fetchTextOptional(url: string): Promise<string | null> {
+async function fetchTextOptional(url: string, auth?: GitHubAuth): Promise<string | null> {
   try {
     const response = await fetch(url, {
-      headers: buildHeaders(),
+      headers: buildHeaders(auth),
       next: { revalidate: 0 },
     });
     if (!response.ok) return null;
@@ -118,17 +126,43 @@ export type UserProfile = {
   avatar_url?: string | null;
 };
 
-export async function fetchUserProfile(username: string): Promise<UserProfile> {
-  return fetchGitHub<UserProfile>(`https://api.github.com/users/${username}`);
+export async function fetchUserProfile(
+  username: string,
+  auth?: GitHubAuth,
+): Promise<UserProfile> {
+  return fetchGitHub<UserProfile>(`https://api.github.com/users/${username}`, auth);
 }
 
-// 1차 shallow: 모든 공개 repo 메타데이터만 수집
+// 인증된 본인 자신의 프로필 (private repo 개수 등이 포함됨)
+export type AuthedUserProfile = UserProfile & {
+  total_private_repos?: number;
+  owned_private_repos?: number;
+};
+
+export async function fetchAuthedUserProfile(auth: GitHubAuth): Promise<AuthedUserProfile> {
+  return fetchGitHub<AuthedUserProfile>("https://api.github.com/user", auth);
+}
+
+// 1차 shallow: 사용자의 repo 메타데이터 수집.
+// - mode "public" (기본): /users/{username}/repos 사용 (공개 repo 만 보임)
+// - mode "self":         /user/repos 사용 (인증된 본인의 public + private 포함)
+//                        token 의 visibility 파라미터로 범위 좁힐 수 있음.
 // - 첫 페이지에서 실패하면 그대로 throw (사용자 자체 조회 실패와 유사 취급).
 // - 두 번째 페이지 이후 실패는 부분 수집으로 처리해 분석을 이어간다.
+export type RepoCollectionMode =
+  | { kind: "public"; username: string }
+  | { kind: "self"; visibility: "all" | "public" | "private" };
+
 export async function fetchAllUserRepos(
-  username: string,
+  modeOrUsername: RepoCollectionMode | string,
   onPartialFailure?: (message: string) => void,
+  auth?: GitHubAuth,
 ): Promise<GitHubRepo[]> {
+  const mode: RepoCollectionMode =
+    typeof modeOrUsername === "string"
+      ? { kind: "public", username: modeOrUsername }
+      : modeOrUsername;
+
   const repos: GitHubRepo[] = [];
   let page = 1;
   // 안전 상한: 매우 활동적인 사용자(>1000 repo)의 경우 첫 10페이지 = 1000개로 제한
@@ -136,10 +170,12 @@ export async function fetchAllUserRepos(
 
   while (page <= MAX_PAGES) {
     let batch: GitHubRepo[];
+    const url =
+      mode.kind === "self"
+        ? `https://api.github.com/user/repos?sort=updated&per_page=${GITHUB_REPOS_PER_PAGE}&page=${page}&visibility=${mode.visibility}&affiliation=owner`
+        : `https://api.github.com/users/${mode.username}/repos?sort=updated&per_page=${GITHUB_REPOS_PER_PAGE}&page=${page}`;
     try {
-      batch = await fetchGitHub<GitHubRepo[]>(
-        `https://api.github.com/users/${username}/repos?sort=updated&per_page=${GITHUB_REPOS_PER_PAGE}&page=${page}`,
-      );
+      batch = await fetchGitHub<GitHubRepo[]>(url, auth);
     } catch (error) {
       if (page === 1) throw error;
       onPartialFailure?.(
@@ -157,9 +193,10 @@ export async function fetchAllUserRepos(
 }
 
 // PoC 호환: hasReadme 단독 호출용
-export async function hasReadme(owner: string, repo: string): Promise<boolean> {
+export async function hasReadme(owner: string, repo: string, auth?: GitHubAuth): Promise<boolean> {
   const result = await fetchGitHubOptional<{ name: string }>(
     `https://api.github.com/repos/${owner}/${repo}/readme`,
+    auth,
   );
   return result !== null;
 }
@@ -185,15 +222,16 @@ export async function fetchDeepRepoData(
   owner: string,
   repo: string,
   defaultBranch: string,
+  auth?: GitHubAuth,
 ): Promise<DeepRepoData> {
   const branch = defaultBranch || "main";
 
   const [readmeText, rootTree, languages, commits, configFiles] = await Promise.all([
-    fetchReadmeText(owner, repo),
-    fetchRootTree(owner, repo, branch),
-    fetchLanguages(owner, repo),
-    fetchRecentCommits(owner, repo, 10),
-    fetchConfigFiles(owner, repo, branch),
+    fetchReadmeText(owner, repo, auth),
+    fetchRootTree(owner, repo, branch, auth),
+    fetchLanguages(owner, repo, auth),
+    fetchRecentCommits(owner, repo, 10, auth),
+    fetchConfigFiles(owner, repo, branch, auth),
   ]);
 
   return { readmeText, rootTree, languages, commits, configFiles };
@@ -201,27 +239,38 @@ export async function fetchDeepRepoData(
 
 const README_MAX_LENGTH = 20_000;
 
-async function fetchReadmeText(owner: string, repo: string): Promise<string | null> {
+async function fetchReadmeText(
+  owner: string,
+  repo: string,
+  auth?: GitHubAuth,
+): Promise<string | null> {
   // GitHub API는 readme 엔드포인트에서 base64 인코딩된 content를 돌려준다.
-  // 디코딩 단계를 줄이려고 raw URL을 우선 호출하고, 실패 시 content 필드를 디코딩한다.
-  const data = await fetchGitHubOptional<{ download_url: string | null; content?: string; encoding?: string }>(
-    `https://api.github.com/repos/${owner}/${repo}/readme`,
-  );
+  // - private repo 의 raw URL 은 인증이 필요하므로, private 가능성이 있을 땐
+  //   download_url 보다 content (base64) 경로가 더 안전하다.
+  const data = await fetchGitHubOptional<{
+    download_url: string | null;
+    content?: string;
+    encoding?: string;
+  }>(`https://api.github.com/repos/${owner}/${repo}/readme`, auth);
 
   if (!data) return null;
 
-  if (data.download_url) {
-    const text = await fetchTextOptional(data.download_url);
-    if (text) return text.slice(0, README_MAX_LENGTH);
-  }
-
+  // private repo 의 download_url 은 인증된 별도 토큰이 박힌 임시 URL 이므로
+  // user access token 으로 그대로 fetch 하면 실패할 수 있다.
+  // 따라서 base64 content 가 있으면 그것을 먼저 사용한다.
   if (data.content && data.encoding === "base64") {
     try {
       const decoded = Buffer.from(data.content, "base64").toString("utf-8");
       return decoded.slice(0, README_MAX_LENGTH);
     } catch {
-      return null;
+      // fall through
     }
+  }
+
+  if (data.download_url) {
+    // public repo 의 raw URL 은 인증 없이도 동작한다.
+    const text = await fetchTextOptional(data.download_url);
+    if (text) return text.slice(0, README_MAX_LENGTH);
   }
 
   return null;
@@ -231,9 +280,11 @@ async function fetchRootTree(
   owner: string,
   repo: string,
   branch: string,
+  auth?: GitHubAuth,
 ): Promise<TreeEntry[]> {
   const data = await fetchGitHubOptional<{ tree: Array<{ path: string; type: string }> }>(
     `https://api.github.com/repos/${owner}/${repo}/git/trees/${branch}`,
+    auth,
   );
   if (!data?.tree) return [];
   return data.tree.map((entry) => ({
@@ -242,9 +293,14 @@ async function fetchRootTree(
   }));
 }
 
-async function fetchLanguages(owner: string, repo: string): Promise<Record<string, number>> {
+async function fetchLanguages(
+  owner: string,
+  repo: string,
+  auth?: GitHubAuth,
+): Promise<Record<string, number>> {
   const data = await fetchGitHubOptional<Record<string, number>>(
     `https://api.github.com/repos/${owner}/${repo}/languages`,
+    auth,
   );
   return data ?? {};
 }
@@ -253,6 +309,7 @@ async function fetchRecentCommits(
   owner: string,
   repo: string,
   perPage: number,
+  auth?: GitHubAuth,
 ): Promise<RepoCommit[]> {
   type CommitItem = {
     sha: string;
@@ -264,6 +321,7 @@ async function fetchRecentCommits(
   };
   const data = await fetchGitHubOptional<CommitItem[]>(
     `https://api.github.com/repos/${owner}/${repo}/commits?per_page=${perPage}`,
+    auth,
   );
   if (!data) return [];
   return data.map((item) => ({
@@ -277,13 +335,33 @@ async function fetchConfigFiles(
   owner: string,
   repo: string,
   branch: string,
+  auth?: GitHubAuth,
 ): Promise<Record<string, string | null>> {
+  // raw.githubusercontent.com 은 private repo 인증이 까다로워 contents API 로 통일.
+  // 응답에 base64 content 가 들어오면 디코딩, 없으면 download_url 우회.
   const entries = await Promise.all(
     CONFIG_FILES.map(async (file) => {
-      const text = await fetchTextOptional(
-        `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${file}`,
-      );
-      return [file, text] as const;
+      const data = await fetchGitHubOptional<{
+        content?: string;
+        encoding?: string;
+        download_url?: string | null;
+      }>(`https://api.github.com/repos/${owner}/${repo}/contents/${file}?ref=${branch}`, auth);
+
+      if (!data) return [file, null] as const;
+
+      if (data.content && data.encoding === "base64") {
+        try {
+          const decoded = Buffer.from(data.content, "base64").toString("utf-8");
+          return [file, decoded] as const;
+        } catch {
+          // fall through
+        }
+      }
+      if (data.download_url) {
+        const text = await fetchTextOptional(data.download_url);
+        if (text) return [file, text] as const;
+      }
+      return [file, null] as const;
     }),
   );
 

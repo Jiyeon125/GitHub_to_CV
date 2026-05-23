@@ -2,7 +2,7 @@
 
 ## 한 줄 소개
 
-GitHub 공개 repository 데이터를 분석하여 개발자 활동 요약, 기술 스택 분포, 대표 프로젝트 설명, 포트폴리오 문장, 이력서 bullet, 예상 면접 질문을 생성하는 Gen AI 기반 리포트 서비스입니다.
+GitHub 으로 로그인한 본인의 저장소(원하면 private 포함) 를 분석해 개발자 활동 요약, 기술 스택 분포, 대표 프로젝트 설명, 포트폴리오 문장, 이력서 bullet, 예상 면접 질문을 생성하는 Gen AI 기반 리포트 서비스입니다. (로그인하지 않으면 임의 username 의 공개 저장소를 테스트용으로 분석할 수 있습니다.)
 
 ## 문제 정의
 
@@ -18,8 +18,10 @@ GitHub에는 개발 활동 정보가 풍부하지만, 취업 준비생이나 학
 
 ## 주요 기능
 
-- GitHub username 기반 공개 repository 수집 (1차 shallow + 2차 deep)
-- 분석은 사용자의 **전체 공개 repo** 를 대상으로 진행 (shallow 수집 + 언어 기반 도메인 신호)
+- **GitHub OAuth 로그인** (NextAuth + `next-auth/providers/github`) — 로그인하면 본인의 private repo 까지 분석 가능
+- **게스트 / 테스트 모드** — 비로그인 상태에서는 임의 username 의 공개 repo 만 분석 (개발/검증용. 이후 비활성화 예정)
+- GitHub repository 수집 (1차 shallow + 2차 deep)
+- 분석은 사용자의 **전체 저장소** 를 대상으로 진행 (shallow 수집 + 언어 기반 도메인 신호)
 - 그 중 **대표 repo 3~5개** 를 자동 선정해 카드 형태로 표시 (사이드바 슬라이더로 개수 조절)
 - README 신뢰도 평가 (high / medium / low / missing)
 - 구조 / commit 기반 프로젝트 분석
@@ -38,8 +40,9 @@ GitHub에는 개발 활동 정보가 풍부하지만, 취업 준비생이나 학
 실제 프로젝트에서 사용 중인 항목만 기재합니다.
 
 - **Frontend / UI**: React 18, Next.js 14 (App Router), TypeScript 5, 순수 CSS (globals.css)
-- **Backend / API**: Next.js Route Handler (`app/api/analyze/route.ts`)
-- **External API**: GitHub REST API v3 (users, repos, readme, git tree, languages, commits, raw contents)
+- **Backend / API**: Next.js Route Handler (`app/api/analyze/route.ts`, `app/api/auth/[...nextauth]/route.ts`)
+- **Authentication**: NextAuth.js v4 + GitHub OAuth Provider (JWT 세션, 별도 DB 불필요)
+- **External API**: GitHub REST API v3 (users, repos, readme, git tree, languages, commits, contents) — 로그인 사용자는 OAuth access token, 그 외에는 `GITHUB_TOKEN` 또는 미인증 호출
 - **LLM**: 숙명여자대학교 [API Gateway (Mindlogic factchat)](https://docs.mindlogic.ai/docs/sookmyung/gateway/getting-started/overview) — OpenAI 호환 Chat Completions 형식, 단일 키로 OpenAI / Claude / Gemini 모델에 접근. 기본 모델 `claude-sonnet-4-6` (env 로 교체 가능)
 - **Visualization**: 외부 차트 라이브러리 없이 자체 작성한 SVG 레이더 + 막대 차트
 - **Deployment**: Vercel (정적/서버리스), Node.js LTS
@@ -49,11 +52,21 @@ GitHub에는 개발 활동 정보가 풍부하지만, 취업 준비생이나 학
 ## 시스템 흐름
 
 ```
-GitHub username 입력 (Sidebar)
+[옵션] GitHub 로 로그인 → NextAuth 가 access_token 을 JWT 쿠키에 저장
+        ├─ scope: read:user repo  (private repo 분석 동의 시 활용)
+        └─ access_token 은 서버 라우트에서만 getToken() 으로 접근
+
+사이드바 분석 시작
   └─► POST /api/analyze
         ├─ 입력 검증 + IP rate limit (route.ts)
-        ├─ 캐시 hit 시 즉시 응답 (cache.ts)
-        ├─ 1차 shallow 수집: 모든 공개 repo 메타데이터 (github.ts: fetchAllUserRepos)
+        ├─ NextAuth JWT 에서 access_token / login 확인
+        │     ├─ self 모드: 본인 username 강제, OAuth token 으로 GitHub API 호출
+        │     └─ public 모드: 미인증 또는 GITHUB_TOKEN (있다면) 사용
+        ├─ 캐시 hit 시 즉시 응답 (cache.ts, key 에 mode + private 포함)
+        ├─ 1차 shallow 수집: repo 메타데이터
+        │     ├─ self+private: /user/repos?visibility=all (private 포함)
+        │     ├─ self+public:  /user/repos?visibility=public
+        │     └─ public:       /users/{username}/repos
         ├─ 대표 repo 선정 (scoring.ts: computeShallowScore) — 사이드바 슬라이더 개수만큼
         ├─ 2차 deep 수집: 대표 repo 만 (github.ts: fetchDeepRepoData)
         │     └─ README / root tree / languages / 최근 commit 10 / 설정 파일
@@ -79,21 +92,24 @@ GitHub username 입력 (Sidebar)
 
 ```
 app/
-  api/analyze/route.ts   # 입력 검증 + rate limit + 캐시 (PoC 유지)
-  components/            # Sidebar, Dashboard, RadarChart, Panels, RepoCard, Badges
-  globals.css            # 화면 + 인쇄 스타일
+  api/analyze/route.ts          # 입력 검증 + rate limit + 캐시 + NextAuth 세션 검증
+  api/auth/[...nextauth]/route.ts  # NextAuth App Router 핸들러
+  components/                   # Sidebar, Dashboard, RadarChart, Panels, RepoCard, Badges, LoadingProgress
+  globals.css                   # 화면 + 인쇄 스타일
   layout.tsx, page.tsx
+  providers.tsx                 # client SessionProvider 래퍼
 lib/
-  analyze.ts             # 수집 → 분석 → LLM 오케스트레이션
-  github.ts              # GitHub REST 클라이언트 (shallow + deep)
+  auth.ts                # NextAuth authOptions (GitHub OAuth, JWT)
+  analyze.ts             # 수집 → 분석 → LLM 오케스트레이션 (mode/private 인자 추가)
+  github.ts              # GitHub REST 클라이언트 (user token + visibility 옵션)
   scoring.ts             # PoC 점수 함수 + MVP 가중치 (보존)
   readmeReliability.ts   # high / medium / low / missing 평가
   techStack.ts           # 설정 파일 / 구조 기반 스택 추출
   domainScores.ts        # 6축 분야 점수 + 0~100 정규화
   activityPattern.ts     # commit 기반 패턴 (KST 환산)
   tags.ts                # 사용자 태그 후보
-  llm.ts                 # OpenAI / Gemini 호출 + JSON 파싱 fallback
-  cache.ts               # in-memory TTL 캐시
+  llm.ts                 # Mindlogic API Gateway 호출 + JSON 파싱 fallback
+  cache.ts               # in-memory TTL 캐시 (key 에 mode + private 포함)
   types.ts               # 공통 타입
 ```
 
@@ -119,9 +135,16 @@ pnpm build
 
 ## 환경 변수 설정
 
-`.env.example` 을 참고해 `.env.local` 을 생성합니다. (`.env*` 는 `.gitignore` 에 등록되어 있고 `.env.example` 만 커밋됩니다. API 키는 절대 README나 클라이언트 코드에 적지 마세요.)
+`.env.example` 을 참고해 `.env.local` 을 생성합니다. (`.env*` 는 `.gitignore` 에 등록되어 있고 `.env.example` 만 커밋됩니다. API 키는 절대 README 나 클라이언트 코드에 적지 마세요.)
 
 ```env
+# GitHub OAuth (NextAuth)
+GITHUB_CLIENT_ID=
+GITHUB_CLIENT_SECRET=
+NEXTAUTH_SECRET=
+NEXTAUTH_URL=http://localhost:3000
+
+# (선택) 미로그인 게스트 모드용 PAT
 GITHUB_TOKEN=
 
 # 숙명여자대학교 API Gateway (Mindlogic factchat)
@@ -134,13 +157,27 @@ MINDLOGIC_API_KEY=
 
 | 변수 | 설명 |
 | --- | --- |
-| `GITHUB_TOKEN` | GitHub API rate limit 완화용 personal access token. 없어도 동작하지만 깊은 분석 시 빨리 한도에 걸릴 수 있음. |
+| `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` | GitHub OAuth App 의 Client ID / Secret. 로그인 기능을 사용하려면 필수. |
+| `NEXTAUTH_SECRET` | NextAuth JWT 서명/암호화에 사용할 임의 문자열. `openssl rand -base64 32` 로 생성. |
+| `NEXTAUTH_URL` | 배포 URL. 개발 시 `http://localhost:3000`, 배포 시 실제 도메인. |
+| `GITHUB_TOKEN` | (선택) 비로그인 게스트 모드에서 GitHub API rate limit 완화용 PAT. 로그인 사용자에게는 영향 없음. |
 | `MINDLOGIC_API_KEY` | 숙명여대 API Gateway 키. 이 키가 있으면 LLM 요약 활성화. |
 | `MINDLOGIC_BASE_URL` | (선택) 게이트웨이 base URL. 기본 `https://factchat-cloud.mindlogic.ai/v1/gateway`. |
 | `MINDLOGIC_MODEL` | (선택) 게이트웨이가 지원하는 모델 ID. 기본 `claude-sonnet-4-6`. 예: `gpt-4o-mini`, `gemini-2.0-flash` 등. |
 | `LLM_TEMPERATURE` | 기본 0. 호출마다 비슷한 결과를 받기 위한 샘플링 온도. 0~0.3 권장. |
 
 `MINDLOGIC_API_KEY` 가 없으면 사이드바의 "LLM 요약 생성" 을 켜도 자동으로 규칙 기반 결과만 표시되며, 응답 경고 박스에 안내가 노출됩니다.
+
+### GitHub OAuth App 등록
+
+1. https://github.com/settings/developers → **OAuth Apps** → **New OAuth App**
+2. Homepage URL: `http://localhost:3000` (배포 시 실제 도메인)
+3. Authorization callback URL: `http://localhost:3000/api/auth/callback/github`
+4. **Register application** → 다음 화면에서 **Generate a new client secret** 클릭
+5. 발급된 `Client ID` 와 `Client Secret` 을 `.env.local` 에 입력
+6. `NEXTAUTH_SECRET` 도 생성해 함께 저장
+
+OAuth 동의 화면에서 사용자는 `read:user` (프로필) + `repo` (private repo 접근) 권한을 부여하게 됩니다. 본 서비스는 **사용자가 사이드바에서 "private 저장소도 분석에 포함" 체크박스를 켰을 때만** `visibility=all` 로 private repo 를 가져오며, 켜지 않으면 `visibility=public` 으로만 호출해 GitHub 측에는 권한이 있더라도 실제로는 공개 repo 만 분석합니다.
 
 **API 키 보안 권장사항** ([Mindlogic 가이드](https://docs.mindlogic.ai/docs/sookmyung/gateway/getting-started/authentication#보안) 기준):
 
@@ -229,18 +266,9 @@ UI에 사용자 친화적 한국어 메시지로 표시합니다.
 
 ## 향후 개선 방향
 
-### GitHub OAuth + private repo 분석 (가장 큰 다음 단계)
+### 게스트(다른 username) 모드 제거
 
-현재는 공개 repo 만 분석 가능합니다. GitHub OAuth 를 추가하면 본인 인증된 사용자의 **private repo 까지 분석**할 수 있습니다. 구체적으로는 다음 흐름이 필요합니다.
-
-1. **OAuth 인증**: `next-auth` (또는 GitHub OAuth App 직접 구현) 로 GitHub 로그인 추가
-2. **scope 요청**: 사용자에게 `repo` (private 포함) 또는 `public_repo` (공개만) scope 동의를 받음
-3. **사용자별 access token 저장**: 서버 세션이나 암호화된 쿠키에 저장 (DB 도입 시 KMS 권장)
-4. **API 호출 시 사용자 토큰 사용**: 현재 `GITHUB_TOKEN` 환경변수 대신, 로그인한 사용자의 토큰으로 GitHub REST 를 호출. `/user/repos?visibility=private` 같은 인증 전용 엔드포인트도 호출 가능.
-5. **LLM 으로 private 코드 전송 시 사전 동의**: private 정보가 외부 LLM 게이트웨이로 나가므로 "private repo 도 분석/LLM 으로 전송" 체크박스 + 동의 문구 필수
-6. **rate limit 완화 자동 효과**: 인증 토큰 사용 시 시간당 5,000 회로 늘어남
-
-본 MVP 가 "공개 저장소 기준" 으로 명세돼 있어 OAuth 는 의도적으로 미구현 상태이며, 추가 작업 시 보안/동의 흐름을 반드시 함께 설계해야 합니다.
+현재는 비로그인 상태에서 임의의 username 을 입력해 공개 저장소를 테스트 분석할 수 있도록 열어두었습니다. 본 서비스의 최종 사용 시나리오는 "본인이 본인의 저장소를 분석" 이므로, 발표/배포 시점에는 사이드바의 "다른 사용자 (테스트)" 토글과 `app/api/analyze/route.ts` 의 `requestedMode !== "self"` 분기를 함께 제거해 self 전용으로 좁히는 것이 자연스럽습니다.
 
 ### 기타
 

@@ -90,6 +90,12 @@ export type AnalyzeResponse = {
   username: string;
   profileUrl: string;
   publicRepos: number;
+  // 분석 모드: "self" (로그인 본인) / "public" (임의 username 공개 repo)
+  mode: "self" | "public";
+  // self 모드에서 private repo 도 포함했는지 (UI 라벨용)
+  privateIncluded: boolean;
+  // self 모드에서 실제 fetch 된 private repo 개수 (UI 표시용)
+  privateRepoCount: number;
   selectedRepos: AnalyzedRepo[];
   topLanguage: string;
   languageDistribution: Array<{ language: string; count: number }>;

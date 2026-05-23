@@ -6,8 +6,11 @@
 import {
   GitHubApiError,
   fetchAllUserRepos,
+  fetchAuthedUserProfile,
   fetchDeepRepoData,
   fetchUserProfile,
+  type GitHubAuth,
+  type RepoCollectionMode,
 } from "./github";
 import {
   computeShallowScore,
@@ -135,34 +138,94 @@ function buildAnalyzedRepo(base: ScoredRepo, deep: DeepRepoData | null): Analyze
   };
 }
 
+// 분석 호출 시 추가로 전달 가능한 인증/스코프 컨텍스트.
+// 라우트 핸들러에서 NextAuth 세션을 확인한 뒤 채워 넣는다.
+export type AnalyzeContext = {
+  // 로그인한 사용자의 GitHub OAuth access token (있을 때만)
+  userAccessToken?: string | null;
+  // 분석 모드:
+  //   - "self": 로그인 사용자의 자기 자신 repo (private 포함 가능)
+  //   - "public": 임의 username 의 공개 repo (게스트 또는 다른 사람 입력)
+  mode: "self" | "public";
+  // self 모드에서 private repo 까지 분석할지 (사용자 동의 체크박스 결과)
+  includePrivate?: boolean;
+};
+
 // === 메인 진입점 ===
-export async function runAnalyze(options: AnalyzeOptions): Promise<AnalyzeResponse> {
+export async function runAnalyze(
+  options: AnalyzeOptions,
+  context: AnalyzeContext = { mode: "public" },
+): Promise<AnalyzeResponse> {
   const representativeCount = clampCount(options.representativeCount);
   const username = options.username.trim();
   const warnings: string[] = [];
 
+  const auth: GitHubAuth | undefined = context.userAccessToken
+    ? { userAccessToken: context.userAccessToken }
+    : undefined;
+
   let profile;
   try {
-    profile = await fetchUserProfile(username);
+    profile =
+      context.mode === "self"
+        ? await fetchAuthedUserProfile(auth ?? {})
+        : await fetchUserProfile(username, auth);
   } catch (error) {
     if (error instanceof GitHubApiError) throw error;
     throw new GitHubApiError(502, "GitHub 사용자 정보를 가져오지 못했습니다.", String(error));
   }
 
+  // self 모드에서 token 으로 인증된 사용자가 입력 username 과 다르면 거절.
+  // (UI 가 막아도 서버에서 한 번 더 검사한다)
+  if (context.mode === "self") {
+    const authedLogin = (profile.login || "").toLowerCase();
+    if (authedLogin && username.toLowerCase() !== authedLogin) {
+      throw new GitHubApiError(
+        403,
+        "로그인된 계정과 다른 username 은 self 모드로 분석할 수 없습니다.",
+        `self mode mismatch: authed=${authedLogin}, requested=${username}`,
+      );
+    }
+  }
+
   let repos: GitHubRepo[];
   try {
-    repos = await fetchAllUserRepos(username, (message) => warnings.push(message));
+    const collectionMode: RepoCollectionMode =
+      context.mode === "self"
+        ? { kind: "self", visibility: context.includePrivate ? "all" : "public" }
+        : { kind: "public", username };
+    repos = await fetchAllUserRepos(
+      collectionMode,
+      (message) => warnings.push(message),
+      auth,
+    );
   } catch (error) {
     if (error instanceof GitHubApiError) throw error;
     repos = [];
     warnings.push("GitHub API 호출 중 일부 저장소를 불러오지 못했습니다.");
   }
 
+  // self 모드에서 private 포함시 publicRepos 의미가 모호해진다.
+  // 응답에는 "실제 분석한 총 repo 수" 를 보여주는 게 더 일관적이므로
+  // self+private 인 경우 fetch 된 repos.length 를 reportRepoCount 로 표시한다.
+  const reportRepoCount =
+    context.mode === "self" && context.includePrivate
+      ? repos.length
+      : profile.public_repos;
+
+  const privateRepoCount =
+    context.mode === "self"
+      ? repos.filter((r) => (r as unknown as { private?: boolean }).private).length
+      : 0;
+
   if (repos.length === 0) {
     const empty: AnalyzeResponse = {
       username,
       profileUrl: profile.html_url,
-      publicRepos: profile.public_repos,
+      publicRepos: reportRepoCount,
+      mode: context.mode,
+      privateIncluded: Boolean(context.mode === "self" && context.includePrivate),
+      privateRepoCount,
       selectedRepos: [],
       topLanguage: "Unknown",
       languageDistribution: [],
@@ -207,7 +270,16 @@ export async function runAnalyze(options: AnalyzeOptions): Promise<AnalyzeRespon
   const deepResults = await Promise.all(
     candidates.map(async (repo) => {
       try {
-        const data = await fetchDeepRepoData(username, repo.name, repo.default_branch ?? "main");
+        // private repo 의 owner 가 organization 이거나 fork 인 경우 등 username 과 다를 수 있다.
+        // shallow 응답의 owner.login 을 우선 사용한다.
+        const ownerLogin =
+          (repo as unknown as { owner?: { login?: string } }).owner?.login || username;
+        const data = await fetchDeepRepoData(
+          ownerLogin,
+          repo.name,
+          repo.default_branch ?? "main",
+          auth,
+        );
         return { id: repo.id, data };
       } catch (error) {
         console.error(`[analyze] deep fetch failed for ${repo.name}`, error);
@@ -270,7 +342,7 @@ export async function runAnalyze(options: AnalyzeOptions): Promise<AnalyzeRespon
     try {
       const userInput = buildUserReportInput({
         username,
-        publicRepos: profile.public_repos,
+        publicRepos: reportRepoCount,
         topLanguages: languageDistribution.map((l) => l.language),
         domainScores,
         activity: activityPattern,
@@ -310,14 +382,21 @@ export async function runAnalyze(options: AnalyzeOptions): Promise<AnalyzeRespon
 
   // LLM 요약이 없을 때 보여줄 규칙 기반 fallback 문장.
   // 단정 표현 대신 "공개 저장소 기준 추정" 임을 명시한다.
+  const scopeLabel =
+    context.mode === "self" && context.includePrivate
+      ? `${reportRepoCount}개 저장소(private 포함)`
+      : `공개 저장소 ${reportRepoCount}개`;
   const summary =
     llmReport?.summary ||
-    `${username} 사용자의 공개 저장소 ${profile.public_repos}개 중 대표 ${selectedRepos.length}개를 분석한 추정 결과입니다. 주 언어는 ${topLanguage}로 관찰됩니다.`;
+    `${username} 사용자의 ${scopeLabel} 중 대표 ${selectedRepos.length}개를 분석한 추정 결과입니다. 주 언어는 ${topLanguage}로 관찰됩니다.`;
 
   return {
     username,
     profileUrl: profile.html_url,
-    publicRepos: profile.public_repos,
+    publicRepos: reportRepoCount,
+    mode: context.mode,
+    privateIncluded: Boolean(context.mode === "self" && context.includePrivate),
+    privateRepoCount,
     selectedRepos,
     topLanguage,
     languageDistribution,

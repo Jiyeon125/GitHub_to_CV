@@ -38,8 +38,18 @@ export function buildAnalyzeCacheKey(opts: {
   username: string;
   representativeCount: number;
   useLlm: boolean;
+  mode: "self" | "public";
+  includePrivate: boolean;
 }): string {
   // updated_at 은 분석 시점 GitHub 응답에 따라 달라지므로 키에 포함시키지 않는다.
-  // MVP에서는 username 기반의 짧은 TTL로 충분하다.
-  return `analyze:${opts.username.toLowerCase()}:n=${opts.representativeCount}:llm=${opts.useLlm ? 1 : 0}`;
+  // - mode/private 은 응답 내용을 바꾸므로 캐시 키에 포함한다.
+  // - private 포함 결과를 비로그인 또는 게스트가 받아가지 못하도록 라우트에서 한 번 더 인증을 검사한다.
+  return [
+    "analyze",
+    opts.username.toLowerCase(),
+    `n=${opts.representativeCount}`,
+    `llm=${opts.useLlm ? 1 : 0}`,
+    `mode=${opts.mode}`,
+    `priv=${opts.includePrivate ? 1 : 0}`,
+  ].join(":");
 }
