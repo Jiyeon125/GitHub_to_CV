@@ -1,21 +1,19 @@
-// 메인 대시보드 컨테이너
-// - 상단: 추정 결과 disclaimer + headline / summary / warnings / 태그
-// - 중단: 좌측 레이더, 우측 기술 스택 + 활동 패널
-// - 하단: 대표 repo 카드 리스트
-// - 인쇄 모드에서도 동일한 시각적 위계로 표시되도록 panel/card 단위로 묶는다.
+"use client";
 
 import type { AnalyzeResponse, DomainScores } from "@/lib/types";
 import RadarChart from "./RadarChart";
 import TechStackPanel from "./TechStackPanel";
 import ActivityPanel from "./ActivityPanel";
 import RepoCard from "./RepoCard";
+import { TagCard } from "./TagCard";
+import { WarningBanner } from "./WarningBanner";
 
 type Props = {
   data: AnalyzeResponse;
 };
 
 function allScoresZero(scores: DomainScores): boolean {
-  return Object.values(scores).every((value) => value <= 0);
+  return Object.values(scores).every((v) => v <= 0);
 }
 
 export default function Dashboard({ data }: Props) {
@@ -25,119 +23,122 @@ export default function Dashboard({ data }: Props) {
   const radarEmpty = allScoresZero(data.domainScores);
 
   return (
-    <div className="dashboard">
-      <section className="dashboard-top">
-        <div className="disclaimer-banner" role="note">
-          {data.mode === "self" && data.privateIncluded
-            ? "이 리포트는 본인 계정의 저장소(private 포함) 를 기반으로 한 추정 결과입니다. 결과는 검토 후 사용해주세요."
-            : data.mode === "self"
-              ? "이 리포트는 본인 계정의 공개 저장소를 기반으로 한 추정 결과입니다. private repo 는 사이드바에서 동의 후 포함시킬 수 있습니다."
-              : "이 리포트는 GitHub 공개 저장소 데이터를 기반으로 한 추정 결과입니다. private repo 활동과 외부 기여는 반영되지 않으며, 결과는 검토 후 사용해주세요."}
+    <div className="flex flex-col gap-5 p-6 max-w-[1200px]">
+      {/* Disclaimer */}
+      <div className="bg-[rgba(245,158,11,0.08)] border-l-4 border-l-[#F59E0B] p-3 rounded-r-lg text-sm text-muted-foreground" role="note">
+        ⚠ 이 리포트는 GitHub 공개 저장소 데이터를 기반으로 한 추정 결과입니다.
+        private repo 활동과 외부 기여는 반영되지 않으며, 결과는 검토 후 사용해주세요.
+      </div>
+
+      {/* Headline Card */}
+      <div className="bg-card border border-border rounded-xl p-6">
+        <p className="text-sm text-muted-foreground mb-2 font-mono">
+          <a
+            href={data.profileUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="text-primary hover:underline"
+          >
+            @{data.username}
+          </a>
+          {" "}· 공개 repo {data.publicRepos}개 · 주 언어 {data.topLanguage}
+          {data.cached && (
+            <span className="ml-2 px-2 py-0.5 bg-muted border border-border rounded-full text-xs text-muted-foreground">
+              캐시된 결과
+            </span>
+          )}
+        </p>
+        <h2 className="text-2xl font-bold mb-3 text-foreground leading-tight">
+          {data.llm?.headline || "공개 저장소 기반 개발 활동 추정 리포트"}
+        </h2>
+        <p className="text-sm text-muted-foreground leading-relaxed">{data.summary}</p>
+      </div>
+
+      {/* Warnings */}
+      {data.warnings.length > 0 && (
+        <div className="flex flex-col gap-2 no-print">
+          {data.warnings.map((warning, i) => (
+            <WarningBanner key={i} type="red" message={warning} />
+          ))}
         </div>
+      )}
 
-        <div className="headline-card">
-          <p className="headline-meta">
-            <a href={data.profileUrl} target="_blank" rel="noreferrer">
-              @{data.username}
-            </a>{" "}
-            ·{" "}
-            {data.mode === "self" && data.privateIncluded
-              ? `${data.publicRepos}개 저장소(private ${data.privateRepoCount}개 포함)`
-              : `공개 repo ${data.publicRepos}개`}
-            {" "}· 주 언어 {data.topLanguage}
-            {data.mode === "self" && (
-              <span className="badge-inline">본인 계정</span>
-            )}
-            {data.cached && <span className="muted small"> · 캐시된 결과</span>}
-          </p>
-          <h2 className="headline">
-            {data.llm?.headline || "공개 저장소 기반 개발 활동 추정 리포트"}
-          </h2>
-          <p className="summary">{data.summary}</p>
+      {/* Tag Row */}
+      {tags.length > 0 && (
+        <div className="flex gap-3 overflow-x-auto pb-2">
+          {tags.map((tag, i) => (
+            <TagCard key={`${tag.name}-${i}`} tag={tag.name} reason={tag.reason} />
+          ))}
         </div>
+      )}
 
-        {data.warnings.length > 0 && (
-          <div className="warning-box">
-            <strong>안내</strong>
-            <ul>
-              {data.warnings.map((warning, i) => (
-                <li key={i}>{warning}</li>
-              ))}
-            </ul>
+      {/* Middle Grid: Radar + Tech/Activity */}
+      <div className="grid grid-cols-5 gap-5">
+        <div className="col-span-2 bg-card border border-border rounded-xl p-6">
+          <div className="mb-3">
+            <h3 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-1">
+              분야별 점수
+            </h3>
+            <p className="text-xs text-muted-foreground">(공개 repo 기준 추정)</p>
           </div>
-        )}
-
-        {tags.length > 0 && (
-          <div className="tag-card-row">
-            {tags.map((tag, i) => (
-              <article key={`${tag.name}-${i}`} className="tag-card">
-                <h4>#{tag.name}</h4>
-                {tag.reason && <p className="muted small">{tag.reason}</p>}
-              </article>
-            ))}
-          </div>
-        )}
-      </section>
-
-      <section className="dashboard-middle">
-        <div className="middle-left panel">
-          <header className="panel-header">
-            <h3>분야별 점수 (공개 repo 기준 추정)</h3>
-          </header>
           {radarEmpty ? (
-            <p className="muted small">
+            <p className="text-sm text-muted-foreground">
               대표 저장소에서 분야 신호가 충분히 검출되지 않아 차트를 그릴 수 없습니다.
-              README/설정 파일/디렉토리 구조 정보가 부족할 수 있습니다.
             </p>
           ) : (
             <RadarChart scores={data.domainScores} />
           )}
-          <p className="muted xsmall">
-            점수는 대표 repo의 기술 스택, 구조, 문서화 정도를 종합해 0~100 범위로 정규화한 추정치입니다.
+          <p className="text-xs text-muted-foreground text-center mt-3">
+            점수는 0~100 범위로 정규화한 추정치입니다
           </p>
         </div>
 
-        <div className="middle-right">
+        <div className="col-span-3 flex flex-col gap-5">
           <TechStackPanel
             techStack={data.techStackDistribution}
             languages={data.languageDistribution}
           />
           <ActivityPanel pattern={data.activityPattern} />
         </div>
-      </section>
+      </div>
 
-      <section className="dashboard-bottom">
-        <header className="panel-header" style={{ marginBottom: "0.6rem" }}>
-          <h3>대표 저장소 (추정 신뢰도 포함)</h3>
-          <span className="muted small">
+      {/* Repo Cards */}
+      <div>
+        <div className="flex items-baseline justify-between mb-4">
+          <h3 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+            대표 저장소
+          </h3>
+          <span className="text-xs text-muted-foreground">
             상위 {data.selectedRepos.length}개 · 대표 repo 점수 기준
           </span>
-        </header>
+        </div>
+
         {data.selectedRepos.length === 0 ? (
-          <div className="state-card empty">
-            <p>분석 가능한 대표 저장소가 없습니다.</p>
-            <p className="muted small">
+          <div className="bg-card border border-border rounded-xl p-8 text-center">
+            <p className="text-foreground font-medium mb-1">분석 가능한 대표 저장소가 없습니다.</p>
+            <p className="text-sm text-muted-foreground">
               공개 repo 수가 너무 적거나 README/구조 정보가 부족할 수 있습니다.
             </p>
           </div>
         ) : (
-          <div className="repo-grid">
+          <div className="grid grid-cols-3 gap-5">
             {data.selectedRepos.map((repo) => (
               <RepoCard key={repo.id} repo={repo} />
             ))}
           </div>
         )}
-      </section>
+      </div>
 
-      <footer className="dashboard-footer print-only">
-        <p className="muted xsmall">
-          생성 시각: {new Date(data.generatedAt).toLocaleString()} · LLM:{" "}
+      {/* Print-only Footer */}
+      <footer className="hidden print:block mt-4 pt-4 border-t border-border text-center">
+        <p className="text-xs text-muted-foreground">
+          생성 시각: {new Date(data.generatedAt).toLocaleString("ko-KR")} · LLM:{" "}
           {data.llmEnabled
             ? data.llmProvider === "gateway"
               ? "Sookmyung API Gateway"
               : data.llmProvider
             : "사용 안 함"}
-          {" "}· 본 리포트는 GitHub 공개 저장소 데이터를 기반으로 한 추정 결과입니다.
+          {" "}· GitHub 공개 저장소 기반 추정 결과
         </p>
       </footer>
     </div>

@@ -1,22 +1,31 @@
-// 기술 스택 분포 + 언어 분포 패널
-// - 단순 막대바 형태로 시각화 (count 기반 정렬)
-// - 너무 길어지면 상위 N 개만 표시
+"use client";
+
+import { BarChartRow } from "./BarChartRow";
 
 type DistributionItem = { name: string; count: number };
+
+const langColors: Record<string, string> = {
+  TypeScript: "#3178C6",
+  JavaScript: "#F1E05A",
+  Python: "#3572A5",
+  Java: "#B07219",
+  Go: "#00ADD8",
+  Rust: "#DEA584",
+  Ruby: "#CC342D",
+  PHP: "#4F5D95",
+  "C++": "#F34B7D",
+  "C#": "#178600",
+  Swift: "#F05138",
+  Kotlin: "#A97BFF",
+  HTML: "#E34C26",
+  CSS: "#563D7C",
+  Shell: "#89E051",
+};
 
 type Props = {
   techStack: DistributionItem[];
   languages: Array<{ language: string; count: number }>;
 };
-
-function Bar({ value, max }: { value: number; max: number }) {
-  const ratio = max > 0 ? Math.round((value / max) * 100) : 0;
-  return (
-    <div className="bar-track" aria-hidden>
-      <div className="bar-fill" style={{ width: `${ratio}%` }} />
-    </div>
-  );
-}
 
 export default function TechStackPanel({ techStack, languages }: Props) {
   const techTop = techStack.slice(0, 8);
@@ -25,40 +34,44 @@ export default function TechStackPanel({ techStack, languages }: Props) {
   const langMax = langTop[0]?.count ?? 1;
 
   return (
-    <section className="panel">
-      <header className="panel-header">
-        <h3>기술 스택 분포</h3>
-      </header>
+    <div className="bg-card border border-border rounded-xl p-6">
+      <h3 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-4">
+        기술 스택
+      </h3>
+
       {techTop.length === 0 ? (
-        <p className="muted small">감지된 기술 스택이 없습니다. 설정 파일이 부족할 수 있습니다.</p>
+        <p className="text-sm text-muted-foreground">
+          감지된 기술 스택이 없습니다. 설정 파일이 부족할 수 있습니다.
+        </p>
       ) : (
-        <ul className="bar-list">
+        <div className="space-y-1 mb-6">
           {techTop.map((item) => (
-            <li key={item.name} className="bar-row">
-              <span className="bar-label">{item.name}</span>
-              <Bar value={item.count} max={techMax} />
-              <span className="bar-count">{item.count}</span>
-            </li>
+            <BarChartRow
+              key={item.name}
+              label={item.name}
+              value={Math.round((item.count / techMax) * 100)}
+            />
           ))}
-        </ul>
+        </div>
       )}
 
-      <header className="panel-header" style={{ marginTop: "1rem" }}>
-        <h3>주요 언어</h3>
-      </header>
+      <h4 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-3">
+        주요 언어
+      </h4>
       {langTop.length === 0 ? (
-        <p className="muted small">언어 정보를 가져오지 못했습니다.</p>
+        <p className="text-sm text-muted-foreground">언어 정보를 가져오지 못했습니다.</p>
       ) : (
-        <ul className="bar-list">
+        <div className="space-y-1">
           {langTop.map((item) => (
-            <li key={item.language} className="bar-row">
-              <span className="bar-label">{item.language}</span>
-              <Bar value={item.count} max={langMax} />
-              <span className="bar-count">{item.count}</span>
-            </li>
+            <BarChartRow
+              key={item.language}
+              label={item.language}
+              value={Math.round((item.count / langMax) * 100)}
+              color={langColors[item.language] || "#7C6AF7"}
+            />
           ))}
-        </ul>
+        </div>
       )}
-    </section>
+    </div>
   );
 }

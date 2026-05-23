@@ -1,13 +1,8 @@
 "use client";
 
-// 메인 페이지 (MVP)
-// - 로그인 사용자: 기본 모드 "self" (본인 저장소).
-// - 비로그인 사용자: 모드는 "public" 으로 고정. 다른 username 입력해서 테스트 가능.
-// - "PDF로 저장" 버튼은 window.print() 를 호출해 브라우저 인쇄 다이얼로그를 띄운다.
-
-import { useCallback, useEffect, useState } from "react";
-import { useSession } from "next-auth/react";
-import Sidebar, { type AnalyzeMode } from "./components/Sidebar";
+import { useCallback, useState } from "react";
+import { FileDown } from "lucide-react";
+import Sidebar from "./components/Sidebar";
 import Dashboard from "./components/Dashboard";
 import LoadingProgress from "./components/LoadingProgress";
 import type { AnalyzeResponse } from "@/lib/types";
@@ -15,32 +10,12 @@ import type { AnalyzeResponse } from "@/lib/types";
 const EXAMPLE_USERNAMES = ["torvalds", "gaearon", "yyx990803"];
 
 export default function Home() {
-  const { data: session, status } = useSession();
-  const sessionLogin = session?.user?.login ?? null;
-  const isAuthed = status === "authenticated" && !!sessionLogin;
-
   const [username, setUsername] = useState("");
   const [representativeCount, setRepresentativeCount] = useState(3);
   const [useLlm, setUseLlm] = useState(false);
-  const [mode, setMode] = useState<AnalyzeMode>("public");
-  const [includePrivate, setIncludePrivate] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<AnalyzeResponse | null>(null);
-
-  // 세션 상태 변경에 따라 모드 동기화.
-  // - 로그인되면 자동으로 self 모드. (사용자가 명시적으로 "다른 사용자" 로 바꿔도 그대로 유지)
-  // - 로그아웃되면 public 모드로 fallback.
-  useEffect(() => {
-    if (isAuthed) {
-      setMode((prev) => (prev === "public" ? "self" : prev));
-    } else {
-      setMode("public");
-      setIncludePrivate(false);
-    }
-  }, [isAuthed]);
-
-  const effectiveMode: AnalyzeMode = isAuthed ? mode : "public";
 
   const runAnalyze = useCallback(async () => {
     setLoading(true);
@@ -48,20 +23,10 @@ export default function Home() {
     setResult(null);
 
     try {
-      // self 모드면 username 은 서버가 세션 기반으로 강제 결정하지만,
-      // UI 표시용으로 sessionLogin 을 함께 보낸다.
-      const effectiveUsername = effectiveMode === "self" ? sessionLogin ?? "" : username;
-
       const response = await fetch("/api/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          username: effectiveUsername,
-          representativeCount,
-          useLlm,
-          mode: effectiveMode,
-          includePrivate: effectiveMode === "self" ? includePrivate : false,
-        }),
+        body: JSON.stringify({ username, representativeCount, useLlm }),
       });
 
       const data = await response.json();
@@ -80,17 +45,15 @@ export default function Home() {
     } finally {
       setLoading(false);
     }
-  }, [effectiveMode, sessionLogin, username, representativeCount, useLlm, includePrivate]);
+  }, [username, representativeCount, useLlm]);
 
   function handlePrint() {
     if (typeof window === "undefined") return;
     window.print();
   }
 
-  const showExamples = effectiveMode === "public";
-
   return (
-    <div className="layout">
+    <div className="flex h-screen bg-background text-foreground overflow-hidden">
       <Sidebar
         username={username}
         onUsernameChange={setUsername}
@@ -98,95 +61,96 @@ export default function Home() {
         onRepresentativeCountChange={setRepresentativeCount}
         useLlm={useLlm}
         onUseLlmChange={setUseLlm}
-        mode={effectiveMode}
-        onModeChange={setMode}
-        includePrivate={includePrivate}
-        onIncludePrivateChange={setIncludePrivate}
         loading={loading}
         onSubmit={runAnalyze}
       />
 
-      <main className="main">
-        <div className="main-toolbar print-hidden">
-          <div className="examples">
-            {showExamples ? (
-              <>
-                <span className="muted small">예시:&nbsp;</span>
-                {EXAMPLE_USERNAMES.map((example) => (
-                  <button
-                    key={example}
-                    type="button"
-                    className="link"
-                    onClick={() => setUsername(example)}
-                    disabled={loading}
-                  >
-                    {example}
-                  </button>
-                ))}
-              </>
-            ) : (
-              <span className="muted small">
-                @{sessionLogin} 계정으로 분석합니다.
-              </span>
-            )}
+      <main className="flex-1 flex flex-col overflow-hidden">
+        {/* Toolbar */}
+        <div className="flex items-center justify-between px-6 py-3 border-b border-border bg-background flex-shrink-0 no-print">
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-muted-foreground">예시:</span>
+            {EXAMPLE_USERNAMES.map((example) => (
+              <button
+                key={example}
+                type="button"
+                onClick={() => setUsername(example)}
+                disabled={loading}
+                className="px-2.5 py-1 text-xs font-mono border border-border rounded-md text-muted-foreground hover:bg-muted hover:text-foreground transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {example}
+              </button>
+            ))}
           </div>
-          <div className="toolbar-actions">
-            <button
-              type="button"
-              className="ghost"
-              onClick={handlePrint}
-              disabled={!result || loading}
-            >
-              PDF로 저장 / 인쇄
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={handlePrint}
+            disabled={!result || loading}
+            className="flex items-center gap-2 px-3 py-1.5 text-xs border border-border rounded-md text-muted-foreground hover:bg-muted hover:text-foreground transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <FileDown className="w-3.5 h-3.5" />
+            PDF로 저장 / 인쇄
+          </button>
         </div>
 
-        {loading && <LoadingProgress useLlm={useLlm} />}
+        {/* Main Content */}
+        <div className="flex-1 overflow-y-auto">
+          {loading && <LoadingProgress useLlm={useLlm} />}
 
-        {error && (
-          <div className="state-card error">
-            <strong>오류</strong>
-            <p>{error}</p>
-            <p className="muted small">
-              GitHub API 제한이나 일시적 네트워크 오류인 경우 잠시 후 다시 시도해주세요.
-              동일 username 의 직전 분석 결과가 캐시(10분) 에 남아 있다면 재시도 시 자동으로 캐시된
-              결과가 표시됩니다.
-            </p>
-          </div>
-        )}
-
-        {!loading && !error && !result && (
-          <div className="state-card empty">
-            {isAuthed ? (
-              <>
-                <h2>@{sessionLogin} 님의 GitHub 활동 리포트를 생성합니다</h2>
-                <p className="muted">
-                  사이드바에서 옵션을 확인한 뒤 [분석 시작] 버튼을 누르면 로그인된 본인 계정의 저장소를 기반으로
-                  개발 활동 추정 리포트를 생성합니다.
+          {error && !loading && (
+            <div className="flex items-center justify-center min-h-[400px] p-6">
+              <div className="text-center max-w-sm">
+                <div className="w-12 h-12 rounded-full bg-destructive/10 flex items-center justify-center mx-auto mb-4">
+                  <span className="text-2xl text-destructive">✕</span>
+                </div>
+                <h3 className="text-lg font-semibold mb-2 text-foreground">오류</h3>
+                <p className="text-sm text-muted-foreground mb-2">{error}</p>
+                <p className="text-xs text-muted-foreground">
+                  GitHub API 제한이나 일시적 네트워크 오류인 경우 잠시 후 다시 시도해주세요.
                 </p>
-              </>
-            ) : (
-              <>
-                <h2>GitHub 으로 로그인하면 본인의 저장소가 분석됩니다</h2>
-                <p className="muted">
-                  로그인하지 않은 상태에서는 (테스트용으로) 임의의 GitHub username 공개 저장소만 분석할 수 있습니다.
-                  본인의 private repo 까지 포함해 분석하려면 사이드바의 [GitHub 으로 로그인] 버튼을 눌러주세요.
-                </p>
-              </>
-            )}
-            <ul className="muted small">
-              <li>분석 자체는 사용자의 <strong>전체 저장소</strong> 를 대상으로 진행됩니다. 사이드바의 슬라이더는 <strong>대시보드에 카드로 표시할 대표 repo 수 (3~5)</strong> 를 정합니다.</li>
-              <li>대표 repo 는 최신성, description, README, 활동성, 구조 기준으로 자동 선정됩니다.</li>
-              <li>LLM 옵션을 켜면 사용자 요약과 repo별 포트폴리오 문장 / 이력서 bullet / 면접 질문을 생성합니다.</li>
-              <li>LLM API 키가 없으면 자동으로 규칙 기반 결과만 표시됩니다.</li>
-              <li>결과 상단의 [PDF로 저장 / 인쇄] 버튼으로 인쇄형 보고서를 출력할 수 있습니다.</li>
-              <li>새로고침하거나 페이지를 떠나도 동일 조건으로 다시 분석하면 10분 이내에는 캐시된 결과가 즉시 표시됩니다.</li>
-            </ul>
-          </div>
-        )}
+              </div>
+            </div>
+          )}
 
-        {result && <Dashboard data={result} />}
+          {!loading && !error && !result && (
+            <div className="flex items-center justify-center min-h-[calc(100vh-100px)] p-6">
+              <div className="max-w-lg w-full">
+                <div className="w-16 h-16 rounded-2xl bg-card border border-border flex items-center justify-center mx-auto mb-8">
+                  <svg viewBox="0 0 24 24" className="w-8 h-8 text-border fill-current" aria-hidden>
+                    <path d="M12 0C5.374 0 0 5.373 0 12c0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23A11.509 11.509 0 0 1 12 5.803c1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576C20.566 21.797 24 17.3 24 12c0-6.627-5.373-12-12-12z" />
+                  </svg>
+                </div>
+
+                <h2 className="text-xl font-bold text-foreground text-center mb-3">
+                  GitHub username을 입력하고 분석을 시작하세요
+                </h2>
+                <p className="text-sm text-muted-foreground text-center mb-8">
+                  사이드바에 username을 입력한 뒤 [분석 시작] 버튼을 누르면
+                  공개 저장소 데이터를 기반으로 개발 활동 추정 리포트를 생성합니다.
+                </p>
+
+                <ul className="space-y-3">
+                  {[
+                    { color: "#7C6AF7", text: "전체 공개 repo 대상 6축 분야 점수 레이더 차트" },
+                    { color: "#22D3A0", text: "기술 스택 자동 추출 + 언어 분포 바 차트" },
+                    { color: "#F59E0B", text: "LLM 기반 포트폴리오 문장 / 이력서 bullet / 면접 질문" },
+                    { color: "#3178C6", text: "PDF 인쇄형 보고서 1-click 출력" },
+                  ].map((item, i) => (
+                    <li key={i} className="flex items-center gap-3 text-sm text-muted-foreground">
+                      <span
+                        className="w-2 h-2 rounded-full flex-shrink-0"
+                        style={{ backgroundColor: item.color }}
+                      />
+                      {item.text}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          )}
+
+          {result && !loading && <Dashboard data={result} />}
+        </div>
       </main>
     </div>
   );

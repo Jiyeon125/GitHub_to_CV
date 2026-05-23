@@ -1,7 +1,6 @@
-// 활동 패턴 요약 패널
-// - 시간대 비율과 일관성 점수를 직관적인 단어/숫자로 표시
-// - 단정적 표현(예: "야간형 개발자입니다") 대신 "경향" 으로 표현
+"use client";
 
+import { ActivityStatTile } from "./ActivityStatTile";
 import type { ActivityPattern } from "@/lib/types";
 
 type Props = {
@@ -13,51 +12,60 @@ function pct(value: number): string {
 }
 
 export default function ActivityPanel({ pattern }: Props) {
-  return (
-    <section className="panel">
-      <header className="panel-header">
-        <h3>활동 시간대 요약</h3>
-      </header>
+  if (pattern.commit_sample_size === 0) {
+    return (
+      <div className="bg-card border border-border rounded-xl p-6">
+        <h3 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-4">
+          활동 패턴
+        </h3>
+        <p className="text-sm text-muted-foreground">분석 가능한 commit 데이터가 부족합니다.</p>
+      </div>
+    );
+  }
 
-      {pattern.commit_sample_size === 0 ? (
-        <p className="muted small">분석 가능한 commit 데이터가 부족합니다.</p>
-      ) : (
-        <ul className="kv-list">
-          <li>
-            <span>야간 (21~03시)</span>
-            <strong>{pct(pattern.night_ratio)}</strong>
-          </li>
-          <li>
-            <span>오전 (05~11시)</span>
-            <strong>{pct(pattern.morning_ratio)}</strong>
-          </li>
-          <li>
-            <span>주말 비율</span>
-            <strong>{pct(pattern.weekend_ratio)}</strong>
-          </li>
-          <li>
-            <span>커밋 일관성</span>
-            <strong>{pct(pattern.consistency_score)}</strong>
-          </li>
-          <li>
-            <span>표본 커밋 수</span>
-            <strong>{pattern.commit_sample_size}</strong>
-          </li>
-        </ul>
-      )}
+  return (
+    <div className="bg-card border border-border rounded-xl p-6">
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+          활동 패턴
+        </h3>
+        <span className="text-xs text-muted-foreground">(KST 기준)</span>
+      </div>
+
+      <div className="flex gap-3 mb-4">
+        <ActivityStatTile
+          label="야간 비율"
+          value={pct(pattern.night_ratio)}
+          proportion={Math.round(pattern.night_ratio * 100)}
+        />
+        <ActivityStatTile
+          label="주말 비율"
+          value={pct(pattern.weekend_ratio)}
+          proportion={Math.round(pattern.weekend_ratio * 100)}
+        />
+        <ActivityStatTile
+          label="일관성"
+          value={pct(pattern.consistency_score)}
+          proportion={Math.round(pattern.consistency_score * 100)}
+        />
+      </div>
 
       {pattern.activity_tags.length > 0 && (
-        <div className="tag-row" style={{ marginTop: "0.6rem" }}>
+        <div className="flex flex-wrap gap-2">
           {pattern.activity_tags.map((tag) => (
-            <span key={tag} className="chip chip-activity">{tag}</span>
+            <span
+              key={tag}
+              className="px-3 py-1.5 rounded-full bg-[rgba(34,211,160,0.12)] text-[#22D3A0] text-xs border border-[rgba(34,211,160,0.3)]"
+            >
+              {tag}
+            </span>
           ))}
         </div>
       )}
 
-      <p className="muted xsmall" style={{ marginTop: "0.5rem" }}>
-        commit timestamp를 KST(UTC+9)로 환산해 계산한 경향치이며,
-        실제 작업 시간대와 차이가 있을 수 있습니다.
+      <p className="text-xs text-muted-foreground/60 mt-3">
+        commit timestamp를 KST(UTC+9)로 환산한 경향치이며 실제와 차이가 있을 수 있습니다.
       </p>
-    </section>
+    </div>
   );
 }

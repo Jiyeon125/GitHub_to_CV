@@ -1,11 +1,54 @@
 "use client";
 
-// next-auth/react 의 SessionProvider 는 client component 안에서만 동작한다.
-// app/layout.tsx (server component) 에서 직접 import 할 수 없으므로 한 단계 감싼다.
-
 import { SessionProvider } from "next-auth/react";
-import type { ReactNode } from "react";
+import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+
+type Theme = "dark" | "light";
+
+interface ThemeContextType {
+  theme: Theme;
+  toggleTheme: () => void;
+}
+
+const ThemeContext = createContext<ThemeContextType>({
+  theme: "dark",
+  toggleTheme: () => {},
+});
+
+export function useTheme() {
+  return useContext(ThemeContext);
+}
+
+function ThemeProvider({ children }: { children: ReactNode }) {
+  const [theme, setTheme] = useState<Theme>("dark");
+
+  useEffect(() => {
+    const stored = localStorage.getItem("theme") as Theme | null;
+    if (stored) setTheme(stored);
+  }, []);
+
+  useEffect(() => {
+    if (theme === "light") {
+      document.documentElement.classList.add("light");
+    } else {
+      document.documentElement.classList.remove("light");
+    }
+    localStorage.setItem("theme", theme);
+  }, [theme]);
+
+  const toggleTheme = () => setTheme((t) => (t === "dark" ? "light" : "dark"));
+
+  return (
+    <ThemeContext.Provider value={{ theme, toggleTheme }}>
+      {children}
+    </ThemeContext.Provider>
+  );
+}
 
 export default function Providers({ children }: { children: ReactNode }) {
-  return <SessionProvider>{children}</SessionProvider>;
+  return (
+    <SessionProvider>
+      <ThemeProvider>{children}</ThemeProvider>
+    </SessionProvider>
+  );
 }
