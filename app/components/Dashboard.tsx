@@ -122,8 +122,12 @@ export default function Dashboard({ data }: Props) {
       <footer className="dashboard-footer print-only">
         <p className="muted xsmall">
           생성 시각: {new Date(data.generatedAt).toLocaleString()} · LLM:{" "}
-          {data.llmEnabled ? data.llmProvider : "사용 안 함"} · 본 리포트는 GitHub
-          공개 저장소 데이터를 기반으로 한 추정 결과입니다.
+          {data.llmEnabled
+            ? data.llmProvider === "gateway"
+              ? "Sookmyung API Gateway"
+              : data.llmProvider
+            : "사용 안 함"}
+          {" "}· 본 리포트는 GitHub 공개 저장소 데이터를 기반으로 한 추정 결과입니다.
         </p>
       </footer>
     </div>

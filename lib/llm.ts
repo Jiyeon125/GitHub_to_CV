@@ -1,20 +1,20 @@
-// LLM 통합 (OpenAI / Gemini 선택적 호출)
+// LLM 통합 (숙명여대 API Gateway / Mindlogic factchat)
+// - 게이트웨이는 OpenAI 호환 Chat Completions 형식을 제공한다.
+//   문서: https://docs.mindlogic.ai/docs/sookmyung/gateway/getting-started/overview
+// - 단일 키 (MINDLOGIC_API_KEY) 로 OpenAI / Claude / Gemini 등의 모델에 동일한 인터페이스로 접근한다.
 // - 호출은 최소화: 사용자 리포트 1회, repo 분석 1회 (한 프롬프트로 N개 묶음).
 // - JSON 응답이 깨지면 fallback 으로 UI가 항상 무엇이든 보여줄 수 있도록 한다.
-// - LLM 키가 없으면 provider = "none" 으로 두고 호출을 생략한다.
+// - 키가 없으면 provider = "none" 으로 두고 호출을 생략한다.
 //
 // === 재현성 (determinism) 설계 ===
 // 같은 사용자에 대해 여러 번 호출해도 비슷한 결과가 나오도록 다음을 보장한다.
 // 1) 샘플링 파라미터를 greedy 에 가깝게 둔다.
-//    - OpenAI: temperature=0, top_p=1, seed=<payload 해시>, penalty=0
-//    - Gemini: temperature=0, topP=1, topK=1
+//    - temperature=0, top_p=1, seed=<payload 해시>, penalty=0
 // 2) 입력 페이로드를 stable serialization 으로 직렬화 (객체 key 알파벳 순).
-//    - 같은 입력에 대해 매번 같은 문자열이 모델에 들어가야 한다.
-// 3) seed 는 (payload + 프롬프트 버전) 의 결정적 해시. 프롬프트가 바뀌면 seed 도 자동으로 바뀐다.
+// 3) seed 는 (payload + 프롬프트 버전) 의 결정적 해시.
+//    OpenAI 호환 API 이므로 게이트웨이 뒤의 모델(GPT 계열 등) 이 seed 를 지원할 때 byte 단위에 가까운 재현이 가능.
+//    Claude / Gemini 계열은 seed 를 무시할 수 있지만, 다른 장치 (temp=0, 화이트리스트) 로 어휘/구조 변동을 최소화한다.
 // 4) 프롬프트에 sentence template / 어휘 화이트리스트 / few-shot 예시를 넣어 자유도를 낮춘다.
-//
-// 모델은 비결정적 요소가 완전히 0이 되진 않지만(특히 Gemini),
-// 위 4가지를 모두 묶으면 호출마다 어휘/문장 구조의 큰 변동이 사라진다.
 
 import type {
   ActivityPattern,
@@ -24,20 +24,22 @@ import type {
   LLMUserReport,
 } from "./types";
 
-export type LlmProvider = "openai" | "gemini" | "none";
+export type LlmProvider = "gateway" | "none";
 
-const OPENAI_MODEL = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
-const GEMINI_MODEL = process.env.GEMINI_MODEL ?? "gemini-1.5-flash";
+const DEFAULT_GATEWAY_BASE_URL = "https://factchat-cloud.mindlogic.ai/v1/gateway";
+const DEFAULT_GATEWAY_MODEL = "claude-sonnet-4-6";
+
+const GATEWAY_BASE_URL = (process.env.MINDLOGIC_BASE_URL ?? DEFAULT_GATEWAY_BASE_URL).replace(/\/+$/, "");
+const GATEWAY_MODEL = process.env.MINDLOGIC_MODEL ?? DEFAULT_GATEWAY_MODEL;
 
 // 환경 변수로 미세 조정 가능하지만, 기본값은 재현성 최우선으로 0 에 가깝게 둔다.
 const LLM_TEMPERATURE = Number(process.env.LLM_TEMPERATURE ?? "0");
 
-// 프롬프트 버전. 프롬프트 본문이 바뀌면 이 숫자를 올려 seed 도 자동으로 무효화한다.
-const PROMPT_VERSION = "v2-deterministic-2026-05-21";
+// 프롬프트 버전. 프롬프트 본문이 바뀌면 이 문자열을 올려 seed 도 자동으로 무효화한다.
+const PROMPT_VERSION = "v3-mindlogic-2026-05-23";
 
 export function detectLlmProvider(): LlmProvider {
-  if (process.env.OPENAI_API_KEY) return "openai";
-  if (process.env.GEMINI_API_KEY) return "gemini";
+  if (process.env.MINDLOGIC_API_KEY) return "gateway";
   return "none";
 }
 
@@ -229,23 +231,35 @@ const REPO_SYSTEM_PROMPT = `당신은 GitHub 공개 저장소 분석 결과를 �
 출력 예: {"reports":[{"repo_name":"focusdash","project_summary":"구조와 설정 파일 기준 Next.js 기반 생산성 대시보드 웹앱으로 추정되는 프로젝트입니다.","core_features":["알림 센터","대시보드 화면","상태 관리"],"portfolio_sentence":"Next.js 와 Zustand 를 활용해 생산성 대시보드의 주요 UI 와 상태 관리 구조를 구현했습니다.","resume_bullets":["대시보드형 생산성 웹앱의 프론트엔드 화면을 구현했음","알림 센터 컴포넌트와 라우팅 구조를 구성했음","공용 컴포넌트와 상태 store 폴더 구조를 정리했음"],"interview_questions":["상태 관리 라이브러리로 Zustand 를 선택한 이유에 대해 설명해 주세요.","알림 센터 UI 구조를 어떻게 분리했나요?"],"confidence":"medium"}]}`;
 
 // === 호출 헬퍼 ===
-async function callOpenAI(systemPrompt: string, stableUserPayload: string, seed: number): Promise<string | null> {
-  const apiKey = process.env.OPENAI_API_KEY;
+// Mindlogic 게이트웨이는 OpenAI 호환 Chat Completions 스펙을 따른다.
+//   POST {BASE_URL}/chat/completions
+//   Authorization: Bearer ${MINDLOGIC_API_KEY}
+// 모델 ID 는 model 필드로 전달하며 게이트웨이가 각 백엔드(OpenAI / Claude / Gemini)로 라우팅한다.
+async function callGateway(
+  systemPrompt: string,
+  stableUserPayload: string,
+  seed: number,
+): Promise<string | null> {
+  const apiKey = process.env.MINDLOGIC_API_KEY;
   if (!apiKey) return null;
+
   try {
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+    const response = await fetch(`${GATEWAY_BASE_URL}/chat/completions`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${apiKey}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: OPENAI_MODEL,
+        model: GATEWAY_MODEL,
         temperature: LLM_TEMPERATURE,
         top_p: 1,
         frequency_penalty: 0,
         presence_penalty: 0,
+        // seed 는 OpenAI 계열에서는 그대로 사용되고, 일부 모델은 무시할 수 있다.
+        // 무시되더라도 다른 결정성 장치(temp=0, 화이트리스트) 가 어휘/구조를 잡아준다.
         seed,
+        // response_format 은 OpenAI 호환 게이트웨이에서 JSON 강제 출력을 위해 사용한다.
         response_format: { type: "json_object" },
         messages: [
           { role: "system", content: systemPrompt },
@@ -253,50 +267,19 @@ async function callOpenAI(systemPrompt: string, stableUserPayload: string, seed:
         ],
       }),
     });
+
     if (!response.ok) {
-      console.error(`[llm] OpenAI ${response.status}`);
+      const errorText = await response.text().catch(() => "");
+      console.error(`[llm] Gateway ${response.status} ${errorText.slice(0, 200)}`);
       return null;
     }
-    const data = (await response.json()) as { choices?: Array<{ message?: { content?: string } }> };
+
+    const data = (await response.json()) as {
+      choices?: Array<{ message?: { content?: string } }>;
+    };
     return data.choices?.[0]?.message?.content ?? null;
   } catch (error) {
-    console.error("[llm] OpenAI request failed", error);
-    return null;
-  }
-}
-
-async function callGemini(systemPrompt: string, stableUserPayload: string): Promise<string | null> {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) return null;
-  try {
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          systemInstruction: { role: "system", parts: [{ text: systemPrompt }] },
-          contents: [{ role: "user", parts: [{ text: stableUserPayload }] }],
-          generationConfig: {
-            temperature: LLM_TEMPERATURE,
-            // greedy 디코딩에 가깝게: topK=1 이면 매 step 최상위 토큰만 선택.
-            topK: 1,
-            topP: 1,
-            responseMimeType: "application/json",
-          },
-        }),
-      },
-    );
-    if (!response.ok) {
-      console.error(`[llm] Gemini ${response.status}`);
-      return null;
-    }
-    const data = (await response.json()) as {
-      candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
-    };
-    return data.candidates?.[0]?.content?.parts?.[0]?.text ?? null;
-  } catch (error) {
-    console.error("[llm] Gemini request failed", error);
+    console.error("[llm] Gateway request failed", error);
     return null;
   }
 }
@@ -307,12 +290,10 @@ async function callProvider(
   payload: object,
   seedSalt: string,
 ): Promise<string | null> {
+  if (provider !== "gateway") return null;
   const stableInput = stableStringify(payload);
   const seed = deterministicSeed(stableInput, `${PROMPT_VERSION}|${seedSalt}`);
-
-  if (provider === "openai") return callOpenAI(systemPrompt, stableInput, seed);
-  if (provider === "gemini") return callGemini(systemPrompt, stableInput);
-  return null;
+  return callGateway(systemPrompt, stableInput, seed);
 }
 
 function tryParseJson<T>(text: string | null): T | null {

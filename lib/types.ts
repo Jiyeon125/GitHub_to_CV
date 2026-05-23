@@ -100,7 +100,9 @@ export type AnalyzeResponse = {
   warnings: string[];
   llm: LLMUserReport | null;
   llmEnabled: boolean;
-  llmProvider: "openai" | "gemini" | "none";
+  // 현재 MVP에서는 숙명여대 API Gateway 단일 provider 만 지원한다.
+  // 추후 직접 OpenAI/Anthropic 호출이 필요해지면 union 을 확장한다.
+  llmProvider: "gateway" | "none";
   summary: string; // PoC 호환용 텍스트 요약
   generatedAt: string; // ISO
   cached: boolean;

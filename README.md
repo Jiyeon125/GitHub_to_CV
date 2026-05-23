@@ -39,7 +39,7 @@ GitHub에는 개발 활동 정보가 풍부하지만, 취업 준비생이나 학
 - **Frontend / UI**: React 18, Next.js 14 (App Router), TypeScript 5, 순수 CSS (globals.css)
 - **Backend / API**: Next.js Route Handler (`app/api/analyze/route.ts`)
 - **External API**: GitHub REST API v3 (users, repos, readme, git tree, languages, commits, raw contents)
-- **LLM**: OpenAI Chat Completions (`gpt-4o-mini` 기본) 또는 Google Gemini (`gemini-1.5-flash` 기본) — 선택적
+- **LLM**: 숙명여자대학교 [API Gateway (Mindlogic factchat)](https://docs.mindlogic.ai/docs/sookmyung/gateway/getting-started/overview) — OpenAI 호환 Chat Completions 형식, 단일 키로 OpenAI / Claude / Gemini 모델에 접근. 기본 모델 `claude-sonnet-4-6` (env 로 교체 가능)
 - **Visualization**: 외부 차트 라이브러리 없이 자체 작성한 SVG 레이더 + 막대 차트
 - **Deployment**: Vercel (정적/서버리스), Node.js LTS
 
@@ -62,9 +62,10 @@ GitHub username 입력 (Sidebar)
         │     ├─ 분야별 점수 (domainScores.ts → 0~100 정규화)
         │     ├─ 활동 패턴 (activityPattern.ts, KST 기준)
         │     └─ 태그 후보 (tags.ts)
-        ├─ (선택) LLM 호출 (llm.ts)
+        ├─ (선택) LLM 호출 via Sookmyung API Gateway (llm.ts)
         │     ├─ 사용자 리포트 1회
         │     └─ repo 분석 묶음 1회 (N개 모아서 단일 호출)
+        │     └─ temp=0 + seed + stableStringify 로 호출 재현성 확보
         └─ AnalyzeResponse 반환
   └─► Dashboard 렌더링
         ├─ headline / summary / 경고 / 태그
@@ -121,35 +122,43 @@ pnpm build
 
 ```env
 GITHUB_TOKEN=
-OPENAI_API_KEY=
-# OPENAI_MODEL=gpt-4o-mini
 
-GEMINI_API_KEY=
-# GEMINI_MODEL=gemini-1.5-flash
+# 숙명여자대학교 API Gateway (Mindlogic factchat)
+MINDLOGIC_API_KEY=
+# MINDLOGIC_BASE_URL=https://factchat-cloud.mindlogic.ai/v1/gateway
+# MINDLOGIC_MODEL=claude-sonnet-4-6
+
+# LLM_TEMPERATURE=0
 ```
 
 | 변수 | 설명 |
 | --- | --- |
 | `GITHUB_TOKEN` | GitHub API rate limit 완화용 personal access token. 없어도 동작하지만 깊은 분석 시 빨리 한도에 걸릴 수 있음. |
-| `OPENAI_API_KEY` | OpenAI 기반 LLM 요약 활성화. 우선 사용. |
-| `GEMINI_API_KEY` | Gemini 기반 LLM 요약 활성화. OpenAI 키가 없을 때 사용. |
-| `OPENAI_MODEL` / `GEMINI_MODEL` | 모델명 오버라이드 (선택). |
+| `MINDLOGIC_API_KEY` | 숙명여대 API Gateway 키. 이 키가 있으면 LLM 요약 활성화. |
+| `MINDLOGIC_BASE_URL` | (선택) 게이트웨이 base URL. 기본 `https://factchat-cloud.mindlogic.ai/v1/gateway`. |
+| `MINDLOGIC_MODEL` | (선택) 게이트웨이가 지원하는 모델 ID. 기본 `claude-sonnet-4-6`. 예: `gpt-4o-mini`, `gemini-2.0-flash` 등. |
 | `LLM_TEMPERATURE` | 기본 0. 호출마다 비슷한 결과를 받기 위한 샘플링 온도. 0~0.3 권장. |
 
-LLM 키가 모두 없으면 사이드바의 "LLM 요약 생성" 을 켜도 자동으로 규칙 기반 결과만 표시되며, 응답 경고 박스에 안내가 노출됩니다.
+`MINDLOGIC_API_KEY` 가 없으면 사이드바의 "LLM 요약 생성" 을 켜도 자동으로 규칙 기반 결과만 표시되며, 응답 경고 박스에 안내가 노출됩니다.
+
+### 왜 숙명여대 API Gateway 인가
+
+[Mindlogic 문서](https://docs.mindlogic.ai/docs/sookmyung/gateway/getting-started/overview) 에 따르면 본 게이트웨이는 OpenAI / Anthropic / Google Gemini / xAI / Perplexity 의 모델을 **OpenAI 호환 Chat Completions 형식 + 단일 키 + 단일 base URL** 로 제공합니다. 본 프로젝트는 다음 이유로 이를 사용합니다.
+
+- 학내 발급 키 하나로 GPT / Claude / Gemini 계열 모델을 자유롭게 교체해 비교 가능
+- 기존 OpenAI SDK 호출 형식을 그대로 사용 → 코드 변경 폭이 작음 (`base URL` 만 교체)
+- 모델 ID 만 환경 변수로 교체 (`MINDLOGIC_MODEL=gpt-4o-mini` 등) → 발표 시 모델별 결과 비교 시연 용이
 
 ### LLM 재현성 (determinism)
 
 같은 사용자에 대해 여러 번 분석해도 비슷한 어휘/문장이 나오도록 다음 장치를 적용했습니다.
 
-- **샘플링 파라미터를 greedy 에 가깝게 고정**
-  - OpenAI: `temperature=0`, `top_p=1`, `frequency_penalty=0`, `presence_penalty=0`, `seed=<payload 해시>`
-  - Gemini: `temperature=0`, `topP=1`, `topK=1` (그리디 디코딩에 가까움, native seed 미지원)
+- **샘플링 파라미터를 greedy 에 가깝게 고정**: `temperature=0`, `top_p=1`, `frequency_penalty=0`, `presence_penalty=0`, `seed=<payload 해시>`
 - **입력 페이로드 stable serialization**: 객체 key 를 알파벳 순으로 정렬해 직렬화하므로 같은 입력 → 항상 같은 문자열이 모델로 들어감 (`stableStringify`)
-- **결정적 seed 계산**: `(프롬프트 버전 + 정렬된 payload)` 의 32-bit 해시를 OpenAI seed 로 전달. 프롬프트 본문이 바뀌면 `PROMPT_VERSION` 도 함께 올려 seed 가 자동 무효화됨
+- **결정적 seed 계산**: `(프롬프트 버전 + 정렬된 payload)` 의 32-bit 해시를 OpenAI 호환 `seed` 파라미터로 전달. 프롬프트 본문이 바뀌면 `PROMPT_VERSION` 도 함께 올려 seed 가 자동 무효화됨
 - **프롬프트 자유도 축소**: headline / portfolio_sentence / resume_bullet 의 종결 어휘를 화이트리스트로 제한, 길이·항목 수를 정수로 고정, 1개의 few-shot 예시로 톤·구조 잠금
 
-> Gemini 는 OpenAI 와 달리 native seed 가 없어 완전한 byte 단위 재현은 보장되지 않지만, 위 설정만으로도 어휘/문장 구조의 큰 변동은 사라집니다.
+> 게이트웨이 뒤 모델이 GPT 계열이면 `seed` 가 그대로 반영되어 사실상 byte 단위에 가까운 재현이 가능합니다. Claude / Gemini 계열은 `seed` 를 무시할 수 있지만, 나머지 결정성 장치만으로도 어휘 / 문장 구조의 큰 변동은 사라집니다.
 
 ## 테스트 / 동작 확인 가이드
 
@@ -188,7 +197,7 @@ UI에 사용자 친화적 한국어 메시지로 표시합니다.
 | GitHub API rate limit | 429 + "GitHub API 호출 한도에 도달했습니다." 안내, 가능한 경우 부분 수집 후 경고 |
 | 인증 실패 (`GITHUB_TOKEN` 잘못됨) | 401 + "GITHUB_TOKEN 값을 확인하세요." |
 | 네트워크 오류 | 503 + "GitHub API에 접속하지 못했습니다." |
-| LLM API key 없음 | 자동으로 규칙 기반 결과만 표시 + "LLM API 키가 없어 규칙 기반 분석 결과만 표시합니다." |
+| LLM API key 없음 (`MINDLOGIC_API_KEY` 미설정) | 자동으로 규칙 기반 결과만 표시 + "LLM API 키가 없어 규칙 기반 분석 결과만 표시합니다." |
 | LLM 호출 / JSON 파싱 실패 | LLM 영역을 비워두고 "LLM 생성에 실패하여 규칙 기반 분석 결과만 표시합니다." 경고 |
 | Repo 데이터 일부 실패 | repo 단위로 격리. 다른 repo 분석은 계속 진행하고 카드에 안내 |
 
