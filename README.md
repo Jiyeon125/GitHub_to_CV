@@ -19,7 +19,7 @@ GitHub에는 개발 활동 정보가 풍부하지만, 취업 준비생이나 학
 ## 주요 기능
 
 - GitHub username 기반 공개 repository 수집 (1차 shallow + 2차 deep)
-- 대표 repository 자동 선정 (3~5개, 사이드바에서 선택)
+- 대표 repository 자동 선정 (3~10개, 사이드바에서 선택. 6 이상부터는 GitHub rate limit 경고 표시)
 - README 신뢰도 평가 (high / medium / low / missing)
 - 구조 / commit 기반 프로젝트 분석
 - 설정 파일 + 디렉토리 구조 기반 기술 스택 추출
@@ -141,6 +141,14 @@ MINDLOGIC_API_KEY=
 
 `MINDLOGIC_API_KEY` 가 없으면 사이드바의 "LLM 요약 생성" 을 켜도 자동으로 규칙 기반 결과만 표시되며, 응답 경고 박스에 안내가 노출됩니다.
 
+**API 키 보안 권장사항** ([Mindlogic 가이드](https://docs.mindlogic.ai/docs/sookmyung/gateway/getting-started/authentication#보안) 기준):
+
+- API 키는 환경 변수(`.env.local`) 에만 저장하고 소스 코드/커밋에 포함하지 않습니다.
+- `.env*` 는 본 프로젝트 `.gitignore` 에 등록되어 있으며 `.env.example` 만 커밋됩니다.
+- 키가 노출됐다면 즉시 Mindlogic API Gateway 페이지에서 해당 키를 해지하고 새 키를 발급받으세요.
+- HTTPS 엔드포인트만 사용하며, 본 코드의 기본 `MINDLOGIC_BASE_URL` 도 HTTPS 입니다.
+- 키는 발급된 테넌트에 한해서만 모델에 접근 가능합니다.
+
 ### 왜 숙명여대 API Gateway 인가
 
 [Mindlogic 문서](https://docs.mindlogic.ai/docs/sookmyung/gateway/getting-started/overview) 에 따르면 본 게이트웨이는 OpenAI / Anthropic / Google Gemini / xAI / Perplexity 의 모델을 **OpenAI 호환 Chat Completions 형식 + 단일 키 + 단일 base URL** 로 제공합니다. 본 프로젝트는 다음 이유로 이를 사용합니다.
@@ -153,12 +161,20 @@ MINDLOGIC_API_KEY=
 
 같은 사용자에 대해 여러 번 분석해도 비슷한 어휘/문장이 나오도록 다음 장치를 적용했습니다.
 
-- **샘플링 파라미터를 greedy 에 가깝게 고정**: `temperature=0`, `top_p=1`, `frequency_penalty=0`, `presence_penalty=0`, `seed=<payload 해시>`
+- **샘플링 파라미터를 greedy 에 가깝게 고정**: `temperature=0`, `seed=<payload 해시>`. `top_p` / `frequency_penalty` / `presence_penalty` 는 게이트웨이 뒷단 모델(특히 Claude) 이 거절하므로 보내지 않음.
 - **입력 페이로드 stable serialization**: 객체 key 를 알파벳 순으로 정렬해 직렬화하므로 같은 입력 → 항상 같은 문자열이 모델로 들어감 (`stableStringify`)
-- **결정적 seed 계산**: `(프롬프트 버전 + 정렬된 payload)` 의 32-bit 해시를 OpenAI 호환 `seed` 파라미터로 전달. 프롬프트 본문이 바뀌면 `PROMPT_VERSION` 도 함께 올려 seed 가 자동 무효화됨
-- **프롬프트 자유도 축소**: headline / portfolio_sentence / resume_bullet 의 종결 어휘를 화이트리스트로 제한, 길이·항목 수를 정수로 고정, 1개의 few-shot 예시로 톤·구조 잠금
+- **결정적 seed 계산**: `(프롬프트 버전 + 정렬된 payload)` 의 32-bit 해시를 OpenAI 호환 `seed` 파라미터로 전달. 프롬프트 본문이나 호출 파라미터 형태가 바뀌면 `PROMPT_VERSION` 도 함께 올려 seed 가 자동 무효화됨.
+- **프롬프트 자유도 축소**: headline / portfolio_sentence / resume_bullet 의 종결 어휘를 화이트리스트로 제한, 길이·항목 수를 정수로 고정, 1개의 few-shot 예시로 톤·구조 잠금.
 
-> 게이트웨이 뒤 모델이 GPT 계열이면 `seed` 가 그대로 반영되어 사실상 byte 단위에 가까운 재현이 가능합니다. Claude / Gemini 계열은 `seed` 를 무시할 수 있지만, 나머지 결정성 장치만으로도 어휘 / 문장 구조의 큰 변동은 사라집니다.
+> 게이트웨이 뒤 모델이 GPT 계열이면 `seed` 가 그대로 반영되어 사실상 byte 단위에 가까운 재현이 가능합니다. Claude / Gemini 계열은 `seed` 를 무시할 수 있지만, `temperature=0` 만으로도 그리디 디코딩에 가까워 어휘 / 문장 구조의 큰 변동은 사라집니다.
+
+### JSON 강제 출력 처리
+
+게이트웨이 뒤의 모델에 따라 `response_format` 필드가 요구하는 형식이 다릅니다 (OpenAI: `json_object`, Anthropic: `json_schema`, Gemini: 별도). 어떤 모델로 라우팅돼도 동작하도록 본 프로젝트는 **`response_format` 을 보내지 않고**, 다음 3-단계로 JSON을 강제/복구합니다.
+
+1. system prompt 첫 줄에서 "JSON 한 객체만 출력, 다른 텍스트 금지" 강제
+2. `tryParseJson` 이 정상 JSON / ```json ... ``` 코드 블록 / 첫 `{` ~ 마지막 `}` 그리디 매칭 순서로 시도
+3. 모두 실패하면 응답을 폐기하고 규칙 기반 결과만 표시 (UI 경고 박스에 노출)
 
 ## 테스트 / 동작 확인 가이드
 
@@ -166,7 +182,7 @@ MINDLOGIC_API_KEY=
 
 | 유형 | 확인 포인트 |
 | --- | --- |
-| repo가 많은 사용자 (예: 유명 오픈소스 메인테이너) | shallow 페이지네이션 / 대표 repo 3~5 선정 / 캐시 동작 |
+| repo가 많은 사용자 (예: 유명 오픈소스 메인테이너) | shallow 페이지네이션 / 대표 repo 3~10 선정 / 캐시 동작 |
 | repo가 적은 사용자 | 빈 상태 UI / "분석 가능한 공개 저장소가 부족" 경고 |
 | README가 부실한 repo가 많은 사용자 | README badge가 low / missing 으로 표시 / 분석 신뢰도 보수적 표시 |
 | fork repo가 많은 사용자 | "fork 저장소만 공개" 경고 / fork 감점이 점수에 반영 |
@@ -175,7 +191,7 @@ MINDLOGIC_API_KEY=
 각 케이스에서 다음을 확인합니다.
 
 - 앱이 정상 실행되는가
-- 대표 repo가 3~5개 선정되는가
+- 대표 repo가 사용자가 지정한 개수(3~10) 만큼 선정되는가
 - README 신뢰도 badge가 표시되는가
 - 기술 스택이 어느 정도 납득 가능하게 추출되는가
 - 분야별 점수가 0~100 범위로 표시되는가

@@ -67,11 +67,17 @@ export default function Sidebar({
           <input
             type="range"
             min={3}
-            max={5}
+            max={10}
             step={1}
             value={representativeCount}
             onChange={(event) => onRepresentativeCountChange(Number(event.target.value))}
           />
+          {representativeCount >= 6 && (
+            <span className="muted xsmall">
+              {representativeCount}개를 분석하면 GitHub API 호출이 늘어나 rate limit에 도달할 수
+              있습니다. {" "}<code>GITHUB_TOKEN</code> 설정을 권장합니다.
+            </span>
+          )}
         </label>
 
         <label className="field-inline">

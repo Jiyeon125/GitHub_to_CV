@@ -9,11 +9,12 @@
 // === 재현성 (determinism) 설계 ===
 // 같은 사용자에 대해 여러 번 호출해도 비슷한 결과가 나오도록 다음을 보장한다.
 // 1) 샘플링 파라미터를 greedy 에 가깝게 둔다.
-//    - temperature=0, top_p=1, seed=<payload 해시>, penalty=0
+//    - temperature=0 (가장 중요), seed=<payload 해시>
+//    - top_p / penalty 는 게이트웨이 뒷단 모델(특히 Claude) 이 거절하므로 보내지 않는다.
 // 2) 입력 페이로드를 stable serialization 으로 직렬화 (객체 key 알파벳 순).
 // 3) seed 는 (payload + 프롬프트 버전) 의 결정적 해시.
-//    OpenAI 호환 API 이므로 게이트웨이 뒤의 모델(GPT 계열 등) 이 seed 를 지원할 때 byte 단위에 가까운 재현이 가능.
-//    Claude / Gemini 계열은 seed 를 무시할 수 있지만, 다른 장치 (temp=0, 화이트리스트) 로 어휘/구조 변동을 최소화한다.
+//    게이트웨이 뒤의 모델이 GPT 계열일 때 seed 가 그대로 반영되어 byte 단위에 가까운 재현이 가능.
+//    Claude / Gemini 계열은 seed 를 무시할 수 있지만, 다른 장치 (temperature=0, 화이트리스트) 로 어휘/구조 변동을 최소화한다.
 // 4) 프롬프트에 sentence template / 어휘 화이트리스트 / few-shot 예시를 넣어 자유도를 낮춘다.
 
 import type {
@@ -35,8 +36,9 @@ const GATEWAY_MODEL = process.env.MINDLOGIC_MODEL ?? DEFAULT_GATEWAY_MODEL;
 // 환경 변수로 미세 조정 가능하지만, 기본값은 재현성 최우선으로 0 에 가깝게 둔다.
 const LLM_TEMPERATURE = Number(process.env.LLM_TEMPERATURE ?? "0");
 
-// 프롬프트 버전. 프롬프트 본문이 바뀌면 이 문자열을 올려 seed 도 자동으로 무효화한다.
-const PROMPT_VERSION = "v3-mindlogic-2026-05-23";
+// 프롬프트 버전. 프롬프트 본문 또는 호출 파라미터 형태가 바뀌면 이 문자열을 올려
+// seed 와 캐시(buildAnalyzeCacheKey 는 별도지만 분석 결과 자체 캐시) 가 자동으로 무효화되도록 한다.
+const PROMPT_VERSION = "v4-mindlogic-min-params-2026-05-23";
 
 export function detectLlmProvider(): LlmProvider {
   if (process.env.MINDLOGIC_API_KEY) return "gateway";
@@ -138,7 +140,13 @@ function deterministicSeed(stableInput: string, salt: string): number {
 const USER_SYSTEM_PROMPT = `당신은 개발자의 GitHub 공개 저장소 분석 결과를 정리해 한국어 리포트 헤드라인과 요약을 작성하는 분석가입니다.
 입력으로 받은 통계와 태그 후보만 근거로 사용하고, 추측이나 과장은 금지합니다.
 
-응답은 반드시 다음 JSON 스키마만 출력합니다. 마크다운 코드 블록, 설명 문장, 주석은 금지합니다.
+[출력 형식 절대 규칙]
+- 응답 전체는 유효한 JSON 객체 하나여야 합니다.
+- "{" 로 시작해 "}" 로 끝나야 합니다.
+- JSON 앞이나 뒤에 인사말, 설명, 주석, 마크다운 코드 블록(\`\`\`json ... \`\`\`), 줄바꿈 외 어떤 텍스트도 출력 금지.
+- 위반 시 응답이 자동으로 폐기됩니다.
+
+JSON 스키마:
 {
   "headline": string,
   "summary": string,
@@ -180,8 +188,13 @@ const USER_SYSTEM_PROMPT = `당신은 개발자의 GitHub 공개 저장소 분�
 const REPO_SYSTEM_PROMPT = `당신은 GitHub 공개 저장소 분석 결과를 이력서/포트폴리오용 한국어 문장으로 정리하는 작가입니다.
 입력 데이터만 근거로 사용하고 코드를 추측하지 마세요.
 
+[출력 형식 절대 규칙]
+- 응답 전체는 유효한 JSON 객체 하나여야 합니다.
+- "{" 로 시작해 "}" 로 끝나야 합니다.
+- JSON 앞이나 뒤에 인사말, 설명, 주석, 마크다운 코드 블록(\`\`\`json ... \`\`\`), 줄바꿈 외 어떤 텍스트도 출력 금지.
+- 위반 시 응답이 자동으로 폐기됩니다.
+
 입력은 { "repos": RepoInput[] } 형태입니다. 각 repo 에 대해 다음 JSON 스키마로 응답하세요.
-마크다운 코드 블록, 설명 문장, 주석은 금지합니다.
 {
   "reports": [
     {
@@ -244,6 +257,15 @@ async function callGateway(
   if (!apiKey) return null;
 
   try {
+    // 게이트웨이 뒷단 모델별 호환성 메모:
+    //   - response_format: OpenAI 는 json_object, Anthropic 은 json_schema 형식이라 형식이 달라 → 보내지 않는다.
+    //     system prompt 의 "JSON 만 출력" 지시 + tryParseJson 의 코드 블록 fallback 으로 처리.
+    //   - top_p + temperature: Anthropic 계열은 둘 다 보내면 400 을 반환한다.
+    //     ("`temperature` and `top_p` cannot both be specified for this model")
+    //     재현성에서 가장 중요한 temperature 만 남긴다.
+    //   - frequency_penalty / presence_penalty: Anthropic 미지원 → 제거.
+    //   - seed: OpenAI 계열에서만 반영. Claude/Gemini 는 무시하지만 거절하지는 않아 안전하게 보낸다.
+    //     무시되더라도 다른 결정성 장치(temperature=0, 화이트리스트, stableStringify) 가 어휘/구조를 잡아준다.
     const response = await fetch(`${GATEWAY_BASE_URL}/chat/completions`, {
       method: "POST",
       headers: {
@@ -253,14 +275,7 @@ async function callGateway(
       body: JSON.stringify({
         model: GATEWAY_MODEL,
         temperature: LLM_TEMPERATURE,
-        top_p: 1,
-        frequency_penalty: 0,
-        presence_penalty: 0,
-        // seed 는 OpenAI 계열에서는 그대로 사용되고, 일부 모델은 무시할 수 있다.
-        // 무시되더라도 다른 결정성 장치(temp=0, 화이트리스트) 가 어휘/구조를 잡아준다.
         seed,
-        // response_format 은 OpenAI 호환 게이트웨이에서 JSON 강제 출력을 위해 사용한다.
-        response_format: { type: "json_object" },
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: stableUserPayload },
@@ -296,20 +311,42 @@ async function callProvider(
   return callGateway(systemPrompt, stableInput, seed);
 }
 
+// 모델이 system prompt 를 따르지 않고 다음과 같이 응답하는 경우를 모두 흡수한다.
+//   - ```json\n{...}\n```
+//   - "Here is the JSON:\n{...}"
+//   - {...} (정상)
 function tryParseJson<T>(text: string | null): T | null {
   if (!text) return null;
+
+  const trimmed = text.trim();
+  // 1) 그대로 파싱 시도
   try {
-    return JSON.parse(text) as T;
+    return JSON.parse(trimmed) as T;
   } catch {
-    // 모델이 ```json ``` 으로 감싼 경우를 대비
-    const match = text.match(/\{[\s\S]*\}/);
-    if (!match) return null;
+    // pass
+  }
+
+  // 2) ```json ... ``` 코드 블록 제거 후 재시도
+  const codeBlockMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (codeBlockMatch?.[1]) {
     try {
-      return JSON.parse(match[0]) as T;
+      return JSON.parse(codeBlockMatch[1].trim()) as T;
+    } catch {
+      // pass
+    }
+  }
+
+  // 3) 첫 "{" 부터 마지막 "}" 까지 잘라내 재시도 (그리디 매칭)
+  const objMatch = trimmed.match(/\{[\s\S]*\}/);
+  if (objMatch) {
+    try {
+      return JSON.parse(objMatch[0]) as T;
     } catch {
       return null;
     }
   }
+
+  return null;
 }
 
 // === 외부 노출 함수 ===

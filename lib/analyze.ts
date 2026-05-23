@@ -41,8 +41,13 @@ import type {
   LLMRepoReport,
 } from "./types";
 
+// 대표 repo 개수 허용 범위.
+// - 3 미만은 사용자 도메인 점수 산출에 표본이 부족함.
+// - 너무 크면 1) GitHub API rate limit(인증 없을 때 시간당 60회, 한 repo deep 수집당 5~6회 호출)
+//   에 빠르게 도달하고, 2) LLM 프롬프트 길이도 비례해서 늘어남.
+// 그래서 발표 시연 편의를 위해 10 까지 허용하되, UI 에서 6 이상이면 경고를 띄운다.
 const MIN_REPRESENTATIVE = 3;
-const MAX_REPRESENTATIVE = 5;
+const MAX_REPRESENTATIVE = 10;
 
 function clampCount(value: number): number {
   if (Number.isNaN(value)) return MIN_REPRESENTATIVE;
