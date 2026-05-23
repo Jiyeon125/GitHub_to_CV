@@ -28,13 +28,28 @@ const DOMAIN_LABELS: Record<keyof DomainScores, string> = {
   collaboration: "Collaboration",
 };
 
+// PDF 출력 커스텀 지점.
+// 화면 UI가 아니라 문서 레이아웃이므로, 페이지에 들어갈 정보량은 여기서 조절한다.
+const PDF_CONFIG = {
+  maxTags: 4,
+  maxTechStacks: 7,
+  maxLanguages: 5,
+  maxRepoTechChips: 8,
+  maxResumeBullets: 3,
+  maxInterviewQuestions: 2,
+  pagePaddingTop: 46,
+  pagePaddingX: 42,
+  pagePaddingBottom: 46,
+  baseFontSize: 9.5,
+};
+
 const styles = StyleSheet.create({
   page: {
-    paddingTop: 42,
-    paddingHorizontal: 40,
-    paddingBottom: 44,
+    paddingTop: PDF_CONFIG.pagePaddingTop,
+    paddingHorizontal: PDF_CONFIG.pagePaddingX,
+    paddingBottom: PDF_CONFIG.pagePaddingBottom,
     fontFamily: "NotoSansKR",
-    fontSize: 9.5,
+    fontSize: PDF_CONFIG.baseFontSize,
     lineHeight: 1.55,
     color: "#111827",
     backgroundColor: "#FFFFFF",
@@ -42,8 +57,8 @@ const styles = StyleSheet.create({
   header: {
     borderBottomWidth: 1.5,
     borderBottomColor: "#111827",
-    paddingBottom: 14,
-    marginBottom: 16,
+    paddingBottom: 16,
+    marginBottom: 18,
   },
   eyebrow: {
     fontSize: 8,
@@ -54,7 +69,7 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 22,
     fontWeight: 700,
-    marginBottom: 8,
+    marginBottom: 10,
   },
   meta: {
     fontSize: 9,
@@ -70,10 +85,11 @@ const styles = StyleSheet.create({
     color: "#374151",
   },
   section: {
-    borderWidth: 1,
-    borderColor: "#D1D5DB",
-    borderRadius: 8,
-    padding: 12,
+    borderLeftWidth: 3,
+    borderLeftColor: "#7C6AF7",
+    backgroundColor: "#F9FAFB",
+    paddingVertical: 10,
+    paddingHorizontal: 12,
     marginBottom: 12,
   },
   sectionTitle: {
@@ -101,11 +117,12 @@ const styles = StyleSheet.create({
   },
   tag: {
     width: "48%",
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-    borderRadius: 8,
+    borderLeftWidth: 2,
+    borderLeftColor: "#C7D2FE",
+    borderRadius: 4,
     backgroundColor: "#F9FAFB",
-    padding: 9,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
   },
   tagName: {
     fontSize: 10,
@@ -154,11 +171,12 @@ const styles = StyleSheet.create({
     color: "#6B7280",
   },
   repoCard: {
-    borderWidth: 1,
-    borderColor: "#D1D5DB",
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 12,
+    borderLeftWidth: 3,
+    borderLeftColor: "#7C6AF7",
+    backgroundColor: "#F9FAFB",
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    marginBottom: 14,
   },
   repoHeader: {
     display: "flex",
@@ -223,8 +241,8 @@ const styles = StyleSheet.create({
   },
   footer: {
     position: "absolute",
-    left: 40,
-    right: 40,
+    left: PDF_CONFIG.pagePaddingX,
+    right: PDF_CONFIG.pagePaddingX,
     bottom: 22,
     borderTopWidth: 1,
     borderTopColor: "#E5E7EB",
@@ -254,7 +272,7 @@ function BarRow({ label, value }: { label: string; value: number }) {
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <View style={styles.section} wrap={false}>
+    <View style={styles.section} minPresenceAhead={72}>
       <Text style={styles.sectionTitle}>{title}</Text>
       {children}
     </View>
@@ -308,7 +326,7 @@ export default function PdfReportDocument({ data }: { data: AnalyzeResponse }) {
 
         {tags.length > 0 && (
           <View style={styles.tagGrid}>
-            {tags.slice(0, 4).map((tag, index) => (
+            {tags.slice(0, PDF_CONFIG.maxTags).map((tag, index) => (
               <View key={`${tag.name}-${index}`} style={styles.tag}>
                 <Text style={styles.tagName}>#{tag.name}</Text>
                 {tag.reason ? <Text style={styles.muted}>{tag.reason}</Text> : null}
@@ -344,7 +362,7 @@ export default function PdfReportDocument({ data }: { data: AnalyzeResponse }) {
         <View style={styles.twoColumn}>
           <View style={styles.column}>
             <Section title="기술 스택">
-              {data.techStackDistribution.slice(0, 8).map((item) => (
+              {data.techStackDistribution.slice(0, PDF_CONFIG.maxTechStacks).map((item) => (
                 <BarRow
                   key={item.name}
                   label={item.name}
@@ -355,7 +373,7 @@ export default function PdfReportDocument({ data }: { data: AnalyzeResponse }) {
           </View>
           <View style={styles.column}>
             <Section title="주요 언어">
-              {data.languageDistribution.slice(0, 6).map((item) => (
+              {data.languageDistribution.slice(0, PDF_CONFIG.maxLanguages).map((item) => (
                 <BarRow
                   key={item.language}
                   label={item.language}
@@ -368,7 +386,7 @@ export default function PdfReportDocument({ data }: { data: AnalyzeResponse }) {
 
         <Text style={styles.sectionTitle}>대표 저장소</Text>
         {data.selectedRepos.map((repo) => (
-          <View key={repo.id} style={styles.repoCard} wrap={false}>
+          <View key={repo.id} style={styles.repoCard} minPresenceAhead={110}>
             <View style={styles.repoHeader}>
               <Link src={repo.html_url} style={styles.repoName}>
                 {repo.name}
@@ -385,7 +403,7 @@ export default function PdfReportDocument({ data }: { data: AnalyzeResponse }) {
             </Text>
             {repo.techStack.length > 0 && (
               <View style={styles.chipRow}>
-                {repo.techStack.slice(0, 10).map((tech) => (
+                {repo.techStack.slice(0, PDF_CONFIG.maxRepoTechChips).map((tech) => (
                   <Text key={tech} style={styles.chip}>
                     {tech}
                   </Text>
@@ -401,7 +419,7 @@ export default function PdfReportDocument({ data }: { data: AnalyzeResponse }) {
             {repo.llm?.resume_bullets?.length ? (
               <>
                 <Text style={styles.subTitle}>이력서 bullet</Text>
-                {repo.llm.resume_bullets.slice(0, 3).map((bullet, index) => (
+                {repo.llm.resume_bullets.slice(0, PDF_CONFIG.maxResumeBullets).map((bullet, index) => (
                   <Text key={`${bullet}-${index}`} style={styles.listItem}>
                     · {bullet}
                   </Text>
@@ -411,7 +429,7 @@ export default function PdfReportDocument({ data }: { data: AnalyzeResponse }) {
             {repo.llm?.interview_questions?.length ? (
               <>
                 <Text style={styles.subTitle}>예상 면접 질문</Text>
-                {repo.llm.interview_questions.slice(0, 2).map((question, index) => (
+                {repo.llm.interview_questions.slice(0, PDF_CONFIG.maxInterviewQuestions).map((question, index) => (
                   <Text key={`${question}-${index}`} style={styles.listItem}>
                     {index + 1}. {question}
                   </Text>
