@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ExternalLink, ChevronDown } from "lucide-react";
+import { ExternalLink, ChevronDown, Lock } from "lucide-react";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "./ui/collapsible";
 import { ReliabilityBadge } from "./ReliabilityBadge";
 import { TechChip } from "./TechChip";
@@ -23,16 +23,26 @@ export default function RepoCard({ repo }: { repo: AnalyzedRepo }) {
   return (
     <article className="bg-card border border-border rounded-xl p-5 flex flex-col gap-4 hover:bg-muted hover:border-primary/40 hover:shadow-[0_0_0_3px_rgba(124,106,247,0.12)] transition-all duration-200">
       <div>
-        <div className="flex items-start justify-between mb-2">
+        <div className="flex items-start justify-between gap-2 mb-2">
           <a
             href={repo.html_url}
             target="_blank"
             rel="noreferrer"
-            className="font-semibold text-foreground hover:text-primary transition-colors flex items-center gap-2 group"
+            className="font-semibold text-foreground hover:text-primary transition-colors flex items-center gap-2 group min-w-0"
           >
-            {repo.name}
-            <ExternalLink className="w-3.5 h-3.5 opacity-0 group-hover:opacity-100 transition-opacity" />
+            <span className="truncate">{repo.name}</span>
+            <ExternalLink className="w-3.5 h-3.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
           </a>
+          {repo.private && (
+            <span
+              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md border border-[rgba(245,158,11,0.35)] bg-[rgba(245,158,11,0.12)] text-[#F59E0B] text-[10px] font-semibold uppercase tracking-wider shrink-0"
+              aria-label="private 저장소"
+              title="private 저장소"
+            >
+              <Lock className="w-2.5 h-2.5" />
+              Private
+            </span>
+          )}
         </div>
         <div className="flex gap-2 flex-wrap">
           <ReliabilityBadge level={repo.readmeReliability.level} label={`README ${repo.readmeReliability.level}`} />

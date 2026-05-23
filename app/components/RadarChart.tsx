@@ -1,22 +1,31 @@
 "use client";
 
-import type { DomainScores } from "@/lib/types";
+import type { DomainScores, DomainKey } from "@/lib/types";
 
 interface RadarChartProps {
   scores: DomainScores;
 }
 
-const categoryColors: Record<string, string> = {
-  Frontend: "#7C6AF7",
-  Backend: "#22D3A0",
-  "Data·ML": "#F59E0B",
-  Mobile: "#3178C6",
-  DevOps: "#F87171",
-  Collaboration: "#F1E05A",
+const DOMAIN_LABEL: Record<DomainKey, string> = {
+  frontend: "Frontend",
+  backend: "Backend",
+  data_ml: "Data·ML",
+  mobile: "Mobile",
+  devops: "DevOps",
+  collaboration: "Collab",
+};
+
+const DOMAIN_COLOR: Record<DomainKey, string> = {
+  frontend: "#7C6AF7",
+  backend: "#22D3A0",
+  data_ml: "#F59E0B",
+  mobile: "#3178C6",
+  devops: "#F87171",
+  collaboration: "#F1E05A",
 };
 
 export default function RadarChart({ scores }: RadarChartProps) {
-  const categories = Object.keys(scores) as (keyof DomainScores)[];
+  const categories = Object.keys(scores) as DomainKey[];
   const values = categories.map((k) => scores[k]);
   const max = 100;
   const centerX = 150;
@@ -47,7 +56,12 @@ export default function RadarChart({ scores }: RadarChartProps) {
   const polygonPoints = dataPoints.map((p) => `${p.x},${p.y}`).join(" ");
 
   return (
-    <svg width="300" height="300" viewBox="0 0 300 300" className="mx-auto">
+    <svg
+      width="300"
+      height="300"
+      viewBox="0 0 300 300"
+      className="mx-auto text-muted-foreground"
+    >
       <defs>
         <linearGradient id="radarGradient" x1="0%" y1="0%" x2="100%" y2="100%">
           <stop offset="0%" stopColor="#7C6AF7" stopOpacity="0.6" />
@@ -66,7 +80,8 @@ export default function RadarChart({ scores }: RadarChartProps) {
             key={i}
             points={gridPoints.map((p) => `${p.x},${p.y}`).join(" ")}
             fill="none"
-            stroke="#2A2A38"
+            stroke="currentColor"
+            strokeOpacity="0.15"
             strokeWidth="1"
             strokeDasharray={i === gridLevels.length - 1 ? "0" : "3,3"}
           />
@@ -82,7 +97,8 @@ export default function RadarChart({ scores }: RadarChartProps) {
             y1={centerY}
             x2={endPoint.x}
             y2={endPoint.y}
-            stroke="#2A2A38"
+            stroke="currentColor"
+            strokeOpacity="0.15"
             strokeWidth="1"
             strokeDasharray="3,3"
           />
@@ -98,10 +114,11 @@ export default function RadarChart({ scores }: RadarChartProps) {
 
       {categories.map((category, index) => {
         const labelPos = getLabelPoint(index);
-        const color = categoryColors[category as string] || "#9090A8";
+        const color = DOMAIN_COLOR[category] ?? "#9090A8";
+        const label = DOMAIN_LABEL[category] ?? String(category);
         return (
           <text
-            key={category as string}
+            key={category}
             x={labelPos.x}
             y={labelPos.y}
             fill={color}
@@ -110,7 +127,7 @@ export default function RadarChart({ scores }: RadarChartProps) {
             textAnchor="middle"
             dominantBaseline="middle"
           >
-            {category as string}
+            {label}
           </text>
         );
       })}
@@ -122,7 +139,7 @@ export default function RadarChart({ scores }: RadarChartProps) {
           cy={point.y}
           r="4"
           fill="#7C6AF7"
-          stroke="#F0F0F8"
+          stroke="var(--card)"
           strokeWidth="2"
         />
       ))}

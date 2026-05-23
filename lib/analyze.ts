@@ -218,6 +218,10 @@ export async function runAnalyze(
       ? repos.filter((r) => (r as unknown as { private?: boolean }).private).length
       : 0;
 
+  // 분석 범위 라벨: self+private 이면 "전체 저장소", 그 외엔 "공개 저장소"
+  const scopeLabelForUser =
+    context.mode === "self" && context.includePrivate ? "저장소" : "공개 저장소";
+
   if (repos.length === 0) {
     const empty: AnalyzeResponse = {
       username,
@@ -244,14 +248,14 @@ export async function runAnalyze(
         weekend_ratio: 0,
         consistency_score: 0,
         commit_sample_size: 0,
-        activity_tags: ["공개 repo 정보 부족"],
+        activity_tags: ["저장소 정보 부족"],
       },
       topTagsCandidates: [],
-      warnings: ["분석 가능한 공개 저장소가 부족합니다."],
+      warnings: [`분석 가능한 ${scopeLabelForUser}가 부족합니다.`],
       llm: null,
       llmEnabled: options.useLlm,
       llmProvider: detectLlmProvider(),
-      summary: `${username} 사용자의 공개 저장소가 없어 분석을 진행할 수 없습니다.`,
+      summary: `${username} 사용자의 ${scopeLabelForUser}가 없어 분석을 진행할 수 없습니다.`,
       generatedAt: new Date().toISOString(),
       cached: false,
     };
@@ -260,7 +264,7 @@ export async function runAnalyze(
 
   const onlyForks = repos.every((r) => r.fork);
   if (onlyForks) {
-    warnings.push("fork 저장소만 공개되어 있어 분석 신뢰도가 낮을 수 있습니다.");
+    warnings.push("fork 저장소만 확인되어 분석 신뢰도가 낮을 수 있습니다.");
   }
 
   // === 대표 repo 선정 (shallow 점수 기준) ===
@@ -340,8 +344,13 @@ export async function runAnalyze(
 
   if (llmAvailable) {
     try {
+      const llmScopeLabel =
+        context.mode === "self" && context.includePrivate
+          ? "본인 전체 저장소(private 포함)"
+          : "공개 저장소";
       const userInput = buildUserReportInput({
         username,
+        scope: llmScopeLabel,
         publicRepos: reportRepoCount,
         topLanguages: languageDistribution.map((l) => l.language),
         domainScores,
@@ -381,14 +390,14 @@ export async function runAnalyze(
   }
 
   // LLM 요약이 없을 때 보여줄 규칙 기반 fallback 문장.
-  // 단정 표현 대신 "공개 저장소 기준 추정" 임을 명시한다.
-  const scopeLabel =
+  // 단정 표현 대신 "분석 범위에 기반한 추정"임을 명시한다.
+  const summaryScopeLabel =
     context.mode === "self" && context.includePrivate
       ? `${reportRepoCount}개 저장소(private 포함)`
       : `공개 저장소 ${reportRepoCount}개`;
   const summary =
     llmReport?.summary ||
-    `${username} 사용자의 ${scopeLabel} 중 대표 ${selectedRepos.length}개를 분석한 추정 결과입니다. 주 언어는 ${topLanguage}로 관찰됩니다.`;
+    `${username} 사용자의 ${summaryScopeLabel} 중 대표 ${selectedRepos.length}개를 분석한 추정 결과입니다. 주 언어는 ${topLanguage}로 관찰됩니다.`;
 
   return {
     username,

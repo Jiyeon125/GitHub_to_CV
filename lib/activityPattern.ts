@@ -90,7 +90,7 @@ function deriveActivityTags(
   const tags: string[] = [];
 
   if (!hasEnoughSample) {
-    tags.push("공개 repo 정보 부족");
+    tags.push("commit 표본 부족");
     return tags;
   }
 
@@ -121,7 +121,7 @@ export function analyzeActivityPattern(commitsByRepo: RepoCommit[][]): ActivityP
       weekend_ratio: 0,
       consistency_score: 0,
       commit_sample_size: 0,
-      activity_tags: ["공개 repo 정보 부족"],
+      activity_tags: ["commit 표본 부족"],
     };
   }
 

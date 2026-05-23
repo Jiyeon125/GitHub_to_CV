@@ -56,7 +56,7 @@ export default function Sidebar({
   }
 
   return (
-    <aside className="w-[280px] h-full bg-sidebar border-r border-sidebar-border flex flex-col p-6 shrink-0 no-print overflow-y-auto">
+    <aside className="w-[240px] xl:w-[280px] h-full bg-sidebar border-r border-sidebar-border flex flex-col p-5 xl:p-6 shrink-0 no-print overflow-y-auto">
       <div className="mb-6">
         <div className="flex items-center justify-between mb-3">
           <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center">
@@ -79,7 +79,7 @@ export default function Sidebar({
           GitHub 활동 리포트
         </h1>
         <p className="text-xs text-muted-foreground">
-          공개 저장소 데이터를 분석해 커리어 산출물을 생성합니다
+          내 저장소 데이터를 분석해 커리어 산출물을 생성합니다
         </p>
       </div>
 
@@ -106,7 +106,7 @@ export default function Sidebar({
             <div className="flex items-center justify-between gap-2">
               <div>
                 <p className="text-xs font-medium text-foreground">로그인되지 않음</p>
-                <p className="text-[11px] text-muted-foreground">private 분석을 쓰려면 로그인이 필요합니다.</p>
+                <p className="text-[11px] text-muted-foreground">본인 private 저장소를 분석하려면 로그인이 필요합니다.</p>
               </div>
               <button
                 type="button"
@@ -202,7 +202,11 @@ export default function Sidebar({
             className="w-full"
           />
           <p className="text-xs text-muted-foreground mt-2">
-            분석은 전체 공개 repo 대상, 상위 {representativeCount}개만 카드로 표시합니다
+            {effectiveMode === "self" && includePrivate
+              ? `분석은 본인 전체 저장소(private 포함) 대상, 상위 ${representativeCount}개만 카드로 표시합니다`
+              : effectiveMode === "self"
+                ? `분석은 본인 전체 공개 저장소 대상, 상위 ${representativeCount}개만 카드로 표시합니다`
+                : `분석은 전체 공개 저장소 대상, 상위 ${representativeCount}개만 카드로 표시합니다`}
           </p>
         </div>
 
@@ -227,13 +231,8 @@ export default function Sidebar({
         </button>
 
         <p className="text-xs text-muted-foreground">
-          분석 결과는 README/구조/commit 신호를 종합한 추정치이며, 로그인 시에는 본인 저장소(private 선택 포함)로 확장할 수 있습니다.
+          결과는 README · 구조 · commit 신호를 종합한 추정치이며, 검토 후 사용하십시오.
         </p>
-        {!useLlm && (
-          <p className="text-xs text-muted-foreground/60">
-            LLM API 키가 없으면 규칙 기반 결과만 표시됩니다.
-          </p>
-        )}
       </form>
     </aside>
   );

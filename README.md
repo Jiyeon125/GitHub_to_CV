@@ -183,7 +183,7 @@ OAuth 동의 화면에서 사용자는 `read:user` (프로필) + `repo` (private
 
 - API 키는 환경 변수(`.env.local`) 에만 저장하고 소스 코드/커밋에 포함하지 않습니다.
 - `.env*` 는 본 프로젝트 `.gitignore` 에 등록되어 있으며 `.env.example` 만 커밋됩니다.
-- 키가 노출됐다면 즉시 Mindlogic API Gateway 페이지에서 해당 키를 해지하고 새 키를 발급받으세요.
+- 키가 노출됐다면 즉시 Mindlogic API Gateway 페이지에서 해당 키를 해지하고 새 키를 발급받습니다.
 - HTTPS 엔드포인트만 사용하며, 본 코드의 기본 `MINDLOGIC_BASE_URL` 도 HTTPS 입니다.
 - 키는 발급된 테넌트에 한해서만 모델에 접근 가능합니다.
 
@@ -247,9 +247,9 @@ UI에 사용자 친화적 한국어 메시지로 표시합니다.
 | 존재하지 않는 username | 404 + "GitHub 사용자를 찾을 수 없습니다." |
 | 공개 repo 0개 | 빈 응답 + "분석 가능한 공개 저장소가 부족합니다." 경고 |
 | README 없음 | `level: missing` badge / "README가 부족하여 구조/commit 기반 추정" 안내 |
-| commit 없음 / 적음 | "공개 repo 정보 부족" 태그 / 활동 패널 빈 상태 안내 |
+| commit 없음 / 적음 | "commit 표본 부족" 태그 / 활동 패널 빈 상태 안내 |
 | GitHub API rate limit | 429 + "GitHub API 호출 한도에 도달했습니다." 안내, 가능한 경우 부분 수집 후 경고 |
-| 인증 실패 (`GITHUB_TOKEN` 잘못됨) | 401 + "GITHUB_TOKEN 값을 확인하세요." |
+| 인증 실패 (`GITHUB_TOKEN` 잘못됨) | 401 + "GITHUB_TOKEN 값을 확인하십시오." |
 | 네트워크 오류 | 503 + "GitHub API에 접속하지 못했습니다." |
 | LLM API key 없음 (`MINDLOGIC_API_KEY` 미설정) | 자동으로 규칙 기반 결과만 표시 + "LLM API 키가 없어 규칙 기반 분석 결과만 표시합니다." |
 | LLM 호출 / JSON 파싱 실패 | LLM 영역을 비워두고 "LLM 생성에 실패하여 규칙 기반 분석 결과만 표시합니다." 경고 |

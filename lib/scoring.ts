@@ -16,6 +16,7 @@ export type GitHubRepo = {
   forks_count: number;
   updated_at: string;
   fork: boolean;
+  private?: boolean;
   topics?: string[];
   default_branch?: string;
   size?: number;

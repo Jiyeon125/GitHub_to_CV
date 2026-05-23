@@ -38,7 +38,7 @@ const LLM_TEMPERATURE = Number(process.env.LLM_TEMPERATURE ?? "0");
 
 // 프롬프트 버전. 프롬프트 본문 또는 호출 파라미터 형태가 바뀌면 이 문자열을 올려
 // seed 와 캐시(buildAnalyzeCacheKey 는 별도지만 분석 결과 자체 캐시) 가 자동으로 무효화되도록 한다.
-const PROMPT_VERSION = "v4-mindlogic-min-params-2026-05-23";
+const PROMPT_VERSION = "v5-scope-neutral-2026-05-23";
 
 export function detectLlmProvider(): LlmProvider {
   if (process.env.MINDLOGIC_API_KEY) return "gateway";
@@ -48,6 +48,7 @@ export function detectLlmProvider(): LlmProvider {
 // === 입력 페이로드 빌더 (LLM 토큰 절약을 위해 요약형 데이터만 전달) ===
 export type UserReportInput = {
   username: string;
+  scope: string; // "공개 저장소" / "본인 전체 저장소(private 포함)" 등 분석 범위 라벨
   repo_count: number;
   top_languages: string[];
   domain_scores: DomainScores;
@@ -69,6 +70,7 @@ export type RepoReportInput = {
 
 export function buildUserReportInput(opts: {
   username: string;
+  scope: string;
   publicRepos: number;
   topLanguages: string[];
   domainScores: DomainScores;
@@ -78,6 +80,7 @@ export function buildUserReportInput(opts: {
 }): UserReportInput {
   return {
     username: opts.username,
+    scope: opts.scope,
     repo_count: opts.publicRepos,
     top_languages: opts.topLanguages.slice(0, 5),
     domain_scores: opts.domainScores,
@@ -137,8 +140,9 @@ function deterministicSeed(stableInput: string, salt: string): number {
 // - few-shot 예시 1개 (톤/구조 고정)
 // 프롬프트가 바뀌면 PROMPT_VERSION 도 함께 올려 seed 가 같이 바뀌도록 한다.
 
-const USER_SYSTEM_PROMPT = `당신은 개발자의 GitHub 공개 저장소 분석 결과를 정리해 한국어 리포트 헤드라인과 요약을 작성하는 분석가입니다.
+const USER_SYSTEM_PROMPT = `당신은 개발자의 GitHub 저장소 분석 결과를 정리해 한국어 리포트 헤드라인과 요약을 작성하는 분석가입니다.
 입력으로 받은 통계와 태그 후보만 근거로 사용하고, 추측이나 과장은 금지합니다.
+분석 대상이 공개 저장소만인지, 본인 전체 저장소(private 포함)인지는 입력의 scope 필드를 그대로 따르세요.
 
 [출력 형식 절대 규칙]
 - 응답 전체는 유효한 JSON 객체 하나여야 합니다.
@@ -156,9 +160,9 @@ JSON 스키마:
 
 [표현 원칙]
 - 단정 표현 금지. "프론트엔드 개발자입니다", "야간형 개발자입니다" 같은 문장 사용 금지.
-- 대신 "공개 저장소 기준 ~ 비중이 높게 나타납니다", "~ 경향이 관찰됩니다" 같이 추정형으로 작성.
+- 대신 "분석 대상 저장소 기준 ~ 비중이 높게 나타납니다", "~ 경향이 관찰됩니다" 같이 추정형으로 작성.
 - 입력 데이터에 없는 사실(회사명, 학력, 경력 등)은 절대 추가 금지.
-- 결과가 공개 repository 데이터에 한정된 추정임을 헤드라인/요약 어디선가 인지 가능하게 표현.
+- 결과가 분석 대상 저장소 데이터(scope 값)에 한정된 추정임을 헤드라인/요약 어디선가 인지 가능하게 표현.
 
 [필드별 고정 규칙]
 - headline:
@@ -177,15 +181,15 @@ JSON 스키마:
   - 최대 4개, 가장 점수가 높을 것 같은 순서.
   - 각 reason 은 정확히 1문장, 60자 이내, "~ 기준 ~ 비중이 높음" 같은 추정형.
 - warnings:
-  - 공개 저장소 기준이라는 점은 반드시 1줄 포함.
+  - 분석 대상이 무엇인지(scope 값) 추정 결과라는 점을 반드시 1줄 포함.
   - README/표본 부족 등 신뢰도가 낮은 신호가 있으면 1줄 추가.
   - 최대 3개.
 
 [예시 응답]
-입력 예: { "username": "sample", "domain_scores": { "frontend": 78, "backend": 64, "data_ml": 41, "mobile": 10, "devops": 23, "collaboration": 52 }, "top_languages": ["TypeScript","Python"], "activity_pattern": { "night_ratio": 0.61, "weekend_ratio": 0.35, "consistency_score": 0.72 }, "top_tags_candidates": ["프론트엔드 비중 높음","야간 활동 경향","꾸준한 커밋형"], "top_repos_summary": ["focusdash - productivity dashboard"] }
-출력 예: {"headline":"프론트엔드 비중과 꾸준한 활동이 두드러지는 GitHub 활동 프로필","summary":"공개 저장소 기준 프론트엔드 비중이 가장 높게 나타나며 백엔드 활동도 함께 관찰됩니다. TypeScript 와 Python 사용 빈도가 높고 대표 repo 에서도 웹 대시보드 경향이 보입니다. KST 환산 기준 야간 시간대 활동 비중이 높은 편입니다.","tags":[{"name":"프론트엔드 비중 높음","reason":"공개 저장소 기준 프론트엔드 도메인 점수가 가장 높게 나타남"},{"name":"꾸준한 커밋형","reason":"commit 일관성 점수가 0.7 이상으로 관찰됨"}],"warnings":["본 결과는 공개 저장소 데이터를 기반으로 한 추정입니다."]}`;
+입력 예: { "username": "sample", "scope": "공개 저장소", "domain_scores": { "frontend": 78, "backend": 64, "data_ml": 41, "mobile": 10, "devops": 23, "collaboration": 52 }, "top_languages": ["TypeScript","Python"], "activity_pattern": { "night_ratio": 0.61, "weekend_ratio": 0.35, "consistency_score": 0.72 }, "top_tags_candidates": ["프론트엔드 비중 높음","야간 활동 경향","꾸준한 커밋형"], "top_repos_summary": ["focusdash - productivity dashboard"] }
+출력 예: {"headline":"프론트엔드 비중과 꾸준한 활동이 두드러지는 GitHub 활동 프로필","summary":"분석 대상 저장소 기준 프론트엔드 비중이 가장 높게 나타나며 백엔드 활동도 함께 관찰됩니다. TypeScript 와 Python 사용 빈도가 높고 대표 repo 에서도 웹 대시보드 경향이 보입니다. KST 환산 기준 야간 시간대 활동 비중이 높은 편입니다.","tags":[{"name":"프론트엔드 비중 높음","reason":"분석 대상 저장소 기준 프론트엔드 도메인 점수가 가장 높게 나타남"},{"name":"꾸준한 커밋형","reason":"commit 일관성 점수가 0.7 이상으로 관찰됨"}],"warnings":["본 결과는 공개 저장소 데이터를 기반으로 한 추정입니다."]}`;
 
-const REPO_SYSTEM_PROMPT = `당신은 GitHub 공개 저장소 분석 결과를 이력서/포트폴리오용 한국어 문장으로 정리하는 작가입니다.
+const REPO_SYSTEM_PROMPT = `당신은 GitHub 저장소 분석 결과를 이력서/포트폴리오용 한국어 문장으로 정리하는 작가입니다.
 입력 데이터만 근거로 사용하고 코드를 추측하지 마세요.
 
 [출력 형식 절대 규칙]

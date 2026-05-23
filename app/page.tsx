@@ -10,6 +10,29 @@ import type { AnalyzeResponse } from "@/lib/types";
 
 const EXAMPLE_USERNAMES = ["torvalds", "gaearon", "yyx990803"];
 
+// 에러 메시지 내용에 따라 사용자에게 더 적합한 후속 안내를 노출한다.
+function getErrorHint(message: string): string {
+  if (/찾을 수 없습니다|404/i.test(message)) {
+    return "username 철자를 다시 확인하십시오.";
+  }
+  if (/호출 한도|rate limit|429/i.test(message)) {
+    return "잠시 후 다시 시도하거나, GitHub 로그인으로 호출 한도를 확장하십시오.";
+  }
+  if (/요청 한도/.test(message)) {
+    return "잠시 후 다시 시도하십시오.";
+  }
+  if (/username|입력|형식/.test(message)) {
+    return "GitHub username 입력값을 다시 확인하십시오.";
+  }
+  if (/네트워크|접속/.test(message)) {
+    return "네트워크 연결 상태를 확인한 뒤 다시 시도하십시오.";
+  }
+  if (/인증/.test(message)) {
+    return "로그인 상태를 확인한 뒤 다시 시도하십시오.";
+  }
+  return "잠시 후 다시 시도하거나 입력값을 확인하십시오.";
+}
+
 export default function Home() {
   const { data: session, status } = useSession();
   const isAuthed = status === "authenticated" && Boolean(session?.user?.login);
@@ -93,17 +116,17 @@ export default function Home() {
         onSubmit={runAnalyze}
       />
 
-      <main className="app-main flex-1 flex flex-col overflow-hidden">
+      <main className="app-main flex-1 flex flex-col overflow-hidden min-w-0">
         {/* Toolbar */}
-        <div className="flex items-center justify-between px-6 py-3 border-b border-border bg-background shrink-0 no-print">
-          <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center justify-between gap-2 px-4 sm:px-6 py-3 border-b border-border bg-background shrink-0 no-print">
+          <div className="flex items-center gap-2 flex-wrap">
             <span className="text-xs text-muted-foreground">예시:</span>
             {EXAMPLE_USERNAMES.map((example) => (
               <button
                 key={example}
                 type="button"
                 onClick={() => setUsername(example)}
-                disabled={loading}
+                disabled={loading || (isAuthed && effectiveMode === "self")}
                 className="px-2.5 py-1 text-xs font-mono border border-border rounded-md text-muted-foreground hover:bg-muted hover:text-foreground transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {example}
@@ -134,7 +157,7 @@ export default function Home() {
                 <h3 className="text-lg font-semibold mb-2 text-foreground">오류</h3>
                 <p className="text-sm text-muted-foreground mb-2">{error}</p>
                 <p className="text-xs text-muted-foreground">
-                  GitHub API 제한이나 일시적 네트워크 오류인 경우 잠시 후 다시 시도해주세요.
+                  {getErrorHint(error)}
                 </p>
               </div>
             </div>
@@ -151,21 +174,21 @@ export default function Home() {
 
                 <h2 className="text-xl font-bold text-foreground text-center mb-3">
                   {isAuthed
-                    ? `@${sessionLogin} 계정 기준 분석을 시작하세요`
-                    : "GitHub username을 입력하고 분석을 시작하세요"}
+                    ? `@${sessionLogin} 계정 기준으로 분석을 시작하십시오`
+                    : "GitHub username을 입력한 뒤 분석을 시작하십시오"}
                 </h2>
                 <p className="text-sm text-muted-foreground text-center mb-8">
                   {isAuthed
-                    ? "사이드바에서 private 포함 여부와 옵션을 고른 뒤 [분석 시작]을 누르면 본인 저장소 기반 리포트를 생성합니다."
+                    ? "사이드바에서 private 포함 여부와 옵션을 선택한 뒤 [분석 시작] 버튼을 누르면 본인 저장소 기반 리포트를 생성합니다."
                     : "사이드바에 username을 입력한 뒤 [분석 시작] 버튼을 누르면 공개 저장소 기반 개발 활동 추정 리포트를 생성합니다."}
                 </p>
 
                 <ul className="space-y-3">
                   {[
-                    { color: "#7C6AF7", text: "전체 공개 repo 대상 6축 분야 점수 레이더 차트" },
+                    { color: "#7C6AF7", text: "전체 저장소 대상 6축 분야 점수 레이더 차트" },
                     { color: "#22D3A0", text: "기술 스택 자동 추출 + 언어 분포 바 차트" },
-                    { color: "#F59E0B", text: "LLM 기반 포트폴리오 문장 / 이력서 bullet / 면접 질문" },
-                    { color: "#3178C6", text: "PDF 인쇄형 보고서 1-click 출력" },
+                    { color: "#F59E0B", text: "LLM 기반 포트폴리오 문장 · 이력서 bullet · 면접 질문" },
+                    { color: "#3178C6", text: "PDF · 인쇄형 보고서 한 번에 출력" },
                   ].map((item, i) => (
                     <li key={i} className="flex items-center gap-3 text-sm text-muted-foreground">
                       <span

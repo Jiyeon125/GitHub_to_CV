@@ -59,7 +59,7 @@ function enforceRateLimit(clientIp: string) {
   if (current.count >= RATE_LIMIT_MAX_REQUESTS) {
     throw new ApiError(
       429,
-      "요청 한도를 초과했습니다. 잠시 후 다시 시도하세요.",
+      "요청 한도를 초과했습니다. 잠시 후 다시 시도하십시오.",
       `Rate limit exceeded for IP: ${clientIp}`,
     );
   }
@@ -108,7 +108,7 @@ export async function POST(request: NextRequest) {
     } else {
       mode = "public";
       if (!username) {
-        throw new ApiError(400, "GitHub username을 입력해주세요.", "Missing username");
+        throw new ApiError(400, "GitHub username을 입력하십시오.", "Missing username");
       }
       if (!isValidGitHubUsername(username)) {
         throw new ApiError(

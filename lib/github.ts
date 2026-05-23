@@ -49,7 +49,7 @@ async function fetchGitHub<T>(url: string, auth?: GitHubAuth): Promise<T> {
   } catch (error) {
     throw new GitHubApiError(
       503,
-      "GitHub API에 접속하지 못했습니다. 네트워크 상태를 확인해주세요.",
+      "GitHub API에 접속하지 못했습니다. 네트워크 상태를 확인하십시오.",
       `GitHub fetch threw: ${url} / ${String(error)}`,
     );
   }
@@ -61,14 +61,14 @@ async function fetchGitHub<T>(url: string, auth?: GitHubAuth): Promise<T> {
     if (response.status === 403) {
       throw new GitHubApiError(
         429,
-        "GitHub API 호출 한도에 도달했습니다. 잠시 후 다시 시도하세요.",
+        "GitHub API 호출 한도에 도달했습니다. 잠시 후 다시 시도하십시오.",
         `GitHub 403 rate limit: ${url}`,
       );
     }
     if (response.status === 401) {
       throw new GitHubApiError(
         401,
-        "GitHub API 인증에 실패했습니다. GITHUB_TOKEN 값을 확인하세요.",
+        "GitHub API 인증에 실패했습니다. GITHUB_TOKEN 값을 확인하십시오.",
         `GitHub 401: ${url}`,
       );
     }

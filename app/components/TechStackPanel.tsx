@@ -48,7 +48,7 @@ export default function TechStackPanel({
 
       {techTop.length === 0 ? (
         <p className="text-sm text-muted-foreground">
-          감지된 기술 스택이 없습니다. 설정 파일이 부족할 수 있습니다.
+          감지된 기술 스택이 없습니다. package.json 등 의존성 파일이 없는 저장소일 수 있습니다.
         </p>
       ) : (
         <>
@@ -85,7 +85,7 @@ export default function TechStackPanel({
             ))}
           </div>
           <p className="text-[11px] text-muted-foreground">
-            언어가 감지된 저장소 분포 기준 비율
+            전체 저장소 중 해당 언어가 주 언어인 비율
           </p>
         </>
       )}

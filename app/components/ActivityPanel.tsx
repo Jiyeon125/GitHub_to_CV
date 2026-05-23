@@ -32,7 +32,7 @@ export default function ActivityPanel({ pattern }: Props) {
         <span className="text-xs text-muted-foreground">(KST 기준)</span>
       </div>
 
-      <div className="flex gap-3 mb-4">
+      <div className="grid grid-cols-3 gap-2 sm:gap-3 mb-4">
         <ActivityStatTile
           label="야간 비율"
           value={pct(pattern.night_ratio)}
@@ -64,7 +64,7 @@ export default function ActivityPanel({ pattern }: Props) {
       )}
 
       <p className="text-xs text-muted-foreground/60 mt-3">
-        commit timestamp를 KST(UTC+9)로 환산해 최근 12주 분산 중심으로 계산한 경향치입니다.
+        최근 12주 commit 기준 경향치입니다.
       </p>
     </div>
   );

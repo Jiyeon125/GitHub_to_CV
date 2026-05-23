@@ -21,16 +21,17 @@ export default function Dashboard({ data }: Props) {
   const fallbackTags = data.topTagsCandidates.map((name) => ({ name, reason: "" }));
   const tags = llmTags.length > 0 ? llmTags : fallbackTags;
   const radarEmpty = allScoresZero(data.domainScores);
+  const scopeLabel = data.mode === "self" && data.privateIncluded ? "전체 저장소" : "공개 저장소";
 
   return (
-    <div className="report-root flex flex-col gap-5 p-6 max-w-[1200px]">
+    <div className="report-root flex flex-col gap-5 p-4 sm:p-6 max-w-[1200px] mx-auto">
       {/* Disclaimer */}
       <div className="report-top bg-[rgba(245,158,11,0.08)] border-l-4 border-l-[#F59E0B] p-3 rounded-r-lg text-sm text-muted-foreground" role="note">
         ⚠{" "}
         {data.mode === "self" && data.privateIncluded
           ? "이 리포트는 본인 저장소(private 포함) 기반 추정 결과입니다."
           : "이 리포트는 GitHub 공개 저장소 기반 추정 결과입니다."}{" "}
-        결과는 검토 후 사용해주세요.
+        결과는 검토 후 사용하십시오.
       </div>
 
       {/* Headline Card */}
@@ -47,16 +48,16 @@ export default function Dashboard({ data }: Props) {
           {" "}·{" "}
           {data.mode === "self" && data.privateIncluded
             ? `총 ${data.publicRepos}개 (private ${data.privateRepoCount}개 포함)`
-            : `공개 repo ${data.publicRepos}개`}{" "}
+            : `공개 저장소 ${data.publicRepos}개`}{" "}
           · 주 언어 {data.topLanguage}
           {data.cached && (
-            <span className="ml-2 px-2 py-0.5 bg-muted border border-border rounded-full text-xs text-muted-foreground">
+            <span className="ml-2 px-2 py-0.5 bg-muted border border-border rounded-full text-xs text-muted-foreground no-print">
               캐시된 결과
             </span>
           )}
         </p>
         <h2 className="text-2xl font-bold mb-3 text-foreground leading-tight">
-          {data.llm?.headline || "공개 저장소 기반 개발 활동 추정 리포트"}
+          {data.llm?.headline || `${scopeLabel} 기반 개발 활동 추정 리포트`}
         </h2>
         <p className="text-sm text-muted-foreground leading-relaxed">{data.summary}</p>
       </div>
@@ -80,13 +81,13 @@ export default function Dashboard({ data }: Props) {
       )}
 
       {/* Middle Grid: Radar + Tech/Activity */}
-      <div className="report-middle-grid grid grid-cols-5 gap-5">
-        <div className="col-span-2 bg-card border border-border rounded-xl p-6">
+      <div className="report-middle-grid grid grid-cols-1 lg:grid-cols-5 gap-5">
+        <div className="lg:col-span-2 bg-card border border-border rounded-xl p-6">
           <div className="mb-3">
             <h3 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-1">
               분야별 점수
             </h3>
-            <p className="text-xs text-muted-foreground">(공개 repo 기준 추정)</p>
+            <p className="text-xs text-muted-foreground">({scopeLabel} 기준 추정 · 0~100)</p>
           </div>
           {radarEmpty ? (
             <p className="text-sm text-muted-foreground">
@@ -95,12 +96,9 @@ export default function Dashboard({ data }: Props) {
           ) : (
             <RadarChart scores={data.domainScores} />
           )}
-          <p className="text-xs text-muted-foreground text-center mt-3">
-            점수는 0~100 범위로 정규화한 추정치입니다
-          </p>
         </div>
 
-        <div className="col-span-3 flex flex-col gap-5">
+        <div className="lg:col-span-3 flex flex-col gap-5">
           <TechStackPanel
             techStack={data.techStackDistribution}
             languages={data.languageDistribution}
@@ -121,7 +119,7 @@ export default function Dashboard({ data }: Props) {
             대표 저장소
           </h3>
           <span className="text-xs text-muted-foreground">
-            상위 {data.selectedRepos.length}개 · 대표 repo 점수 기준
+            상위 {data.selectedRepos.length}개
           </span>
         </div>
 
@@ -133,7 +131,7 @@ export default function Dashboard({ data }: Props) {
             </p>
           </div>
         ) : (
-          <div className="report-repo-grid grid grid-cols-3 gap-5">
+          <div className="report-repo-grid grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
             {data.selectedRepos.map((repo) => (
               <div key={repo.id} className="report-repo-item">
                 <RepoCard repo={repo} />
@@ -152,7 +150,7 @@ export default function Dashboard({ data }: Props) {
               ? "Sookmyung API Gateway"
               : data.llmProvider
             : "사용 안 함"}
-          {" "}· GitHub 공개 저장소 기반 추정 결과
+          {" "}· GitHub {scopeLabel} 기반 추정 결과
         </p>
       </footer>
     </div>

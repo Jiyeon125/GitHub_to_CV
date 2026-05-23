@@ -8,9 +8,9 @@ interface ActivityStatTileProps {
 
 export function ActivityStatTile({ label, value, proportion }: ActivityStatTileProps) {
   return (
-    <div className="flex-1 bg-card border border-border rounded-lg p-4">
-      <div className="text-xs text-muted-foreground mb-2">{label}</div>
-      <div className="text-2xl font-bold mb-3 text-foreground">{value}</div>
+    <div className="min-w-0 bg-card border border-border rounded-lg p-3 sm:p-4">
+      <div className="text-xs text-muted-foreground mb-2 truncate">{label}</div>
+      <div className="text-xl sm:text-2xl font-bold mb-3 text-foreground">{value}</div>
       <div className="h-1 bg-border rounded-full overflow-hidden">
         <div
           className="h-full bg-primary rounded-full transition-all duration-500"
