@@ -169,7 +169,7 @@
 
 @media print {
   @page {
-    margin: 1.2cm;
+    margin: 1.45cm;
     size: A4;
   }
 
@@ -179,6 +179,7 @@
 
   body {
     background: white !important;
+    color: #111827 !important;
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
     overflow: visible !important;
@@ -210,26 +211,85 @@
 
   .report-root {
     max-width: none !important;
-    gap: 14px !important;
+    gap: 18px !important;
     padding: 0 !important;
+    color: #111827 !important;
   }
 
-  .report-middle-grid {
-    display: grid !important;
-    grid-template-columns: 1fr 1fr !important;
-    gap: 12px !important;
-    align-items: start !important;
+  .report-print-title {
+    display: block !important;
+    margin-bottom: 6px !important;
+    padding-bottom: 14px !important;
+    border-bottom: 2px solid #111827 !important;
+    break-after: avoid;
+    page-break-after: avoid;
   }
 
-  .report-repo-grid {
+  .report-print-title h1 {
+    color: #111827 !important;
+    line-height: 1.25 !important;
+  }
+
+  .report-top {
+    background: #fff7ed !important;
+    color: #374151 !important;
+    border-left-color: #f59e0b !important;
+  }
+
+  .report-headline,
+  .report-domain-card,
+  .report-repos article,
+  .report-middle-grid > div,
+  .report-tag-grid > div {
+    background: #ffffff !important;
+    border-color: #d1d5db !important;
+    box-shadow: none !important;
+  }
+
+  .report-headline {
+    padding: 18px !important;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  .report-tag-grid {
     display: grid !important;
     grid-template-columns: 1fr 1fr !important;
     gap: 10px !important;
   }
 
+  .report-tag-grid > div {
+    padding: 10px 12px !important;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  .report-middle-grid {
+    display: grid !important;
+    grid-template-columns: 1fr !important;
+    gap: 14px !important;
+    align-items: start !important;
+  }
+
+  .report-middle-grid > div {
+    padding: 18px !important;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  .report-repo-grid {
+    display: grid !important;
+    grid-template-columns: 1fr !important;
+    gap: 14px !important;
+  }
+
   .report-repo-item {
     break-inside: avoid;
     page-break-inside: avoid;
+  }
+
+  .report-repo-item article {
+    padding: 16px !important;
   }
 
   .report-top {

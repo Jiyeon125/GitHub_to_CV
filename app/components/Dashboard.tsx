@@ -25,6 +25,19 @@ export default function Dashboard({ data }: Props) {
 
   return (
     <div className="report-root flex w-full flex-col gap-3 p-3 lg:p-4 max-w-[1200px] mx-auto">
+      <header className="report-print-title hidden print:block">
+        <p className="text-xs font-mono text-muted-foreground mb-2">
+          GitHub Developer Activity Report
+        </p>
+        <h1 className="text-2xl font-bold text-foreground mb-2">
+          GitHub 개발 활동 분석 리포트
+        </h1>
+        <p className="text-sm text-muted-foreground">
+          @{data.username} · {scopeLabel} 기준 추정 결과 · 생성 시각{" "}
+          {new Date(data.generatedAt).toLocaleString("ko-KR")}
+        </p>
+      </header>
+
       {/* Disclaimer */}
       <div className="report-top bg-[rgba(245,158,11,0.08)] border-l-4 border-l-[#F59E0B] p-2.5 rounded-r-lg text-sm text-muted-foreground" role="note">
         ⚠{" "}
@@ -35,7 +48,7 @@ export default function Dashboard({ data }: Props) {
       </div>
 
       {/* Headline Card */}
-      <div className="bg-card border border-border rounded-xl p-4 lg:p-5">
+      <div className="report-headline bg-card border border-border rounded-xl p-4 lg:p-5">
         <p className="text-sm text-muted-foreground mb-2 font-mono">
           <a
             href={data.profileUrl}
@@ -73,7 +86,7 @@ export default function Dashboard({ data }: Props) {
 
       {/* Tag Row */}
       {tags.length > 0 && (
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
+        <div className="report-tag-grid grid grid-cols-2 lg:grid-cols-4 gap-2">
           {tags.map((tag, i) => (
             <TagCard key={`${tag.name}-${i}`} tag={tag.name} reason={tag.reason} />
           ))}
@@ -82,7 +95,7 @@ export default function Dashboard({ data }: Props) {
 
       {/* Middle Grid: Radar + Tech/Activity */}
       <div className="report-middle-grid grid grid-cols-1 lg:grid-cols-5 gap-3 lg:gap-4">
-        <div className="lg:col-span-2 bg-card border border-border rounded-xl p-4 lg:p-5">
+        <div className="report-domain-card lg:col-span-2 bg-card border border-border rounded-xl p-4 lg:p-5">
           <div className="mb-3">
             <h3 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-1">
               분야별 점수

@@ -28,7 +28,7 @@ export default function LoadingProgress({ useLlm }: Props) {
   useEffect(() => {
     if (currentStep >= steps.length - 1) return;
 
-    const delayMs = Math.floor(8000 + Math.random() * 2001); // 8~10초
+    const delayMs = 5000;
     const timer = window.setTimeout(() => {
       setCurrentStep((prev) => Math.min(prev + 1, steps.length - 1));
     }, delayMs);
@@ -36,8 +36,8 @@ export default function LoadingProgress({ useLlm }: Props) {
     return () => window.clearTimeout(timer);
   }, [currentStep, steps.length]);
 
-  const totalMin = useLlm ? 32 : 24;
-  const totalMax = useLlm ? 50 : 40;
+  const totalMin = useLlm ? 20 : 15;
+  const totalMax = useLlm ? 35 : 25;
 
   return (
     <div className="flex items-center justify-center min-h-[400px]">
