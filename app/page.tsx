@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import dynamic from "next/dynamic";
 import { FileDown } from "lucide-react";
 import { useSession } from "next-auth/react";
 import Sidebar from "./components/Sidebar";
@@ -9,6 +10,10 @@ import LoadingProgress from "./components/LoadingProgress";
 import type { AnalyzeResponse } from "@/lib/types";
 
 const EXAMPLE_USERNAMES = ["torvalds", "gaearon", "yyx990803"];
+
+const PdfDownloadButton = dynamic(() => import("./components/PdfDownloadButton"), {
+  ssr: false,
+});
 
 // 에러 메시지 내용에 따라 사용자에게 더 적합한 후속 안내를 노출한다.
 function getErrorHint(message: string): string {
@@ -94,11 +99,6 @@ export default function Home() {
     }
   }, [username, representativeCount, useLlm, effectiveMode, includePrivate, sessionLogin]);
 
-  function handlePrint() {
-    if (typeof window === "undefined") return;
-    window.print();
-  }
-
   return (
     <div className="app-shell flex h-screen bg-background text-foreground overflow-hidden">
       <Sidebar
@@ -133,15 +133,18 @@ export default function Home() {
               </button>
             ))}
           </div>
-          <button
-            type="button"
-            onClick={handlePrint}
-            disabled={!result || loading}
-            className="flex items-center gap-2 px-3 py-1.5 text-xs border border-border rounded-md text-muted-foreground hover:bg-muted hover:text-foreground transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            <FileDown className="w-3.5 h-3.5" />
-            PDF로 저장 / 인쇄
-          </button>
+          {result ? (
+            <PdfDownloadButton data={result} disabled={loading} />
+          ) : (
+            <button
+              type="button"
+              disabled
+              className="flex items-center gap-2 px-3 py-1.5 text-xs border border-border rounded-md text-muted-foreground transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <FileDown className="w-3.5 h-3.5" />
+              PDF 파일 다운로드
+            </button>
+          )}
         </div>
 
         {/* Main Content */}
