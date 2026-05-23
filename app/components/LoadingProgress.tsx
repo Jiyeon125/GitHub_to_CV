@@ -22,14 +22,22 @@ export default function LoadingProgress({ useLlm }: Props) {
     : BASE_STEPS;
 
   useEffect(() => {
-    const interval = setInterval(() => {
-      setCurrentStep((prev) => {
-        if (prev >= steps.length - 1) return prev;
-        return prev + 1;
-      });
-    }, 3000);
-    return () => clearInterval(interval);
+    setCurrentStep(0);
   }, [steps.length]);
+
+  useEffect(() => {
+    if (currentStep >= steps.length - 1) return;
+
+    const delayMs = Math.floor(8000 + Math.random() * 2001); // 8~10초
+    const timer = window.setTimeout(() => {
+      setCurrentStep((prev) => Math.min(prev + 1, steps.length - 1));
+    }, delayMs);
+
+    return () => window.clearTimeout(timer);
+  }, [currentStep, steps.length]);
+
+  const totalMin = useLlm ? 32 : 24;
+  const totalMax = useLlm ? 50 : 40;
 
   return (
     <div className="flex items-center justify-center min-h-[400px]">
@@ -53,9 +61,7 @@ export default function LoadingProgress({ useLlm }: Props) {
         </div>
 
         <p className="text-xs text-muted-foreground mt-6">
-          {useLlm
-            ? "LLM 요약을 포함한 분석은 15~30초 정도 소요될 수 있습니다."
-            : "규칙 기반 분석은 보통 5~10초 정도 소요됩니다."}
+          단계별 안내는 8~10초 간격으로 갱신됩니다. 전체 소요 시간은 보통 {totalMin}~{totalMax}초입니다.
         </p>
       </div>
     </div>

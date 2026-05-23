@@ -23,11 +23,14 @@ export default function Dashboard({ data }: Props) {
   const radarEmpty = allScoresZero(data.domainScores);
 
   return (
-    <div className="flex flex-col gap-5 p-6 max-w-[1200px]">
+    <div className="report-root flex flex-col gap-5 p-6 max-w-[1200px]">
       {/* Disclaimer */}
-      <div className="bg-[rgba(245,158,11,0.08)] border-l-4 border-l-[#F59E0B] p-3 rounded-r-lg text-sm text-muted-foreground" role="note">
-        ⚠ 이 리포트는 GitHub 공개 저장소 데이터를 기반으로 한 추정 결과입니다.
-        private repo 활동과 외부 기여는 반영되지 않으며, 결과는 검토 후 사용해주세요.
+      <div className="report-top bg-[rgba(245,158,11,0.08)] border-l-4 border-l-[#F59E0B] p-3 rounded-r-lg text-sm text-muted-foreground" role="note">
+        ⚠{" "}
+        {data.mode === "self" && data.privateIncluded
+          ? "이 리포트는 본인 저장소(private 포함) 기반 추정 결과입니다."
+          : "이 리포트는 GitHub 공개 저장소 기반 추정 결과입니다."}{" "}
+        결과는 검토 후 사용해주세요.
       </div>
 
       {/* Headline Card */}
@@ -41,7 +44,11 @@ export default function Dashboard({ data }: Props) {
           >
             @{data.username}
           </a>
-          {" "}· 공개 repo {data.publicRepos}개 · 주 언어 {data.topLanguage}
+          {" "}·{" "}
+          {data.mode === "self" && data.privateIncluded
+            ? `총 ${data.publicRepos}개 (private ${data.privateRepoCount}개 포함)`
+            : `공개 repo ${data.publicRepos}개`}{" "}
+          · 주 언어 {data.topLanguage}
           {data.cached && (
             <span className="ml-2 px-2 py-0.5 bg-muted border border-border rounded-full text-xs text-muted-foreground">
               캐시된 결과
@@ -73,7 +80,7 @@ export default function Dashboard({ data }: Props) {
       )}
 
       {/* Middle Grid: Radar + Tech/Activity */}
-      <div className="grid grid-cols-5 gap-5">
+      <div className="report-middle-grid grid grid-cols-5 gap-5">
         <div className="col-span-2 bg-card border border-border rounded-xl p-6">
           <div className="mb-3">
             <h3 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-1">
@@ -103,7 +110,7 @@ export default function Dashboard({ data }: Props) {
       </div>
 
       {/* Repo Cards */}
-      <div>
+      <div className="report-repos">
         <div className="flex items-baseline justify-between mb-4">
           <h3 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
             대표 저장소
@@ -121,9 +128,11 @@ export default function Dashboard({ data }: Props) {
             </p>
           </div>
         ) : (
-          <div className="grid grid-cols-3 gap-5">
+          <div className="report-repo-grid grid grid-cols-3 gap-5">
             {data.selectedRepos.map((repo) => (
-              <RepoCard key={repo.id} repo={repo} />
+              <div key={repo.id} className="report-repo-item">
+                <RepoCard repo={repo} />
+              </div>
             ))}
           </div>
         )}

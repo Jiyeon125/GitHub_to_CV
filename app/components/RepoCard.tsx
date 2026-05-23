@@ -67,7 +67,7 @@ export default function RepoCard({ repo }: { repo: AnalyzedRepo }) {
           <ul className="space-y-1">
             {llm.core_features.map((feature, i) => (
               <li key={i} className="text-sm text-muted-foreground flex items-start gap-2">
-                <span className="text-primary mt-0.5 flex-shrink-0">›</span>
+                <span className="text-primary mt-0.5 shrink-0">›</span>
                 <span>{feature}</span>
               </li>
             ))}
@@ -92,7 +92,7 @@ export default function RepoCard({ repo }: { repo: AnalyzedRepo }) {
           <ul className="space-y-1.5">
             {llm.resume_bullets.map((bullet, i) => (
               <li key={i} className="text-sm text-muted-foreground flex items-start gap-2">
-                <span className="text-[#22D3A0] mt-0.5 flex-shrink-0">✓</span>
+                <span className="text-[#22D3A0] mt-0.5 shrink-0">✓</span>
                 <span>{bullet}</span>
               </li>
             ))}

@@ -14,7 +14,7 @@ export function StepNode({ status, label }: StepNodeProps) {
 
   return (
     <div className="flex items-center gap-3">
-      <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${nodeStyles[status]}`} />
+      <div className={`w-2.5 h-2.5 rounded-full shrink-0 ${nodeStyles[status]}`} />
       <span className={`text-sm ${status === "active" ? "text-foreground font-medium" : "text-muted-foreground"}`}>
         {label}
       </span>

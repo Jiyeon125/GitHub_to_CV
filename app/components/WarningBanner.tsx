@@ -15,7 +15,7 @@ export function WarningBanner({ type, message }: WarningBannerProps) {
 
   return (
     <div className={`${styles[type]} border-l-4 p-4 flex items-center gap-3 text-sm rounded-r-lg`}>
-      <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+      <AlertTriangle className="w-4 h-4 shrink-0" />
       <span>{message}</span>
     </div>
   );

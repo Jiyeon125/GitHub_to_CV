@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { FileDown } from "lucide-react";
+import { useSession } from "next-auth/react";
 import Sidebar from "./components/Sidebar";
 import Dashboard from "./components/Dashboard";
 import LoadingProgress from "./components/LoadingProgress";
@@ -10,12 +11,29 @@ import type { AnalyzeResponse } from "@/lib/types";
 const EXAMPLE_USERNAMES = ["torvalds", "gaearon", "yyx990803"];
 
 export default function Home() {
+  const { data: session, status } = useSession();
+  const isAuthed = status === "authenticated" && Boolean(session?.user?.login);
+  const sessionLogin = session?.user?.login ?? "";
+
   const [username, setUsername] = useState("");
   const [representativeCount, setRepresentativeCount] = useState(3);
   const [useLlm, setUseLlm] = useState(false);
+  const [mode, setMode] = useState<"self" | "public">("public");
+  const [includePrivate, setIncludePrivate] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<AnalyzeResponse | null>(null);
+
+  useEffect(() => {
+    if (!isAuthed) {
+      setMode("public");
+      setIncludePrivate(false);
+      return;
+    }
+    setMode((prev) => (prev === "public" ? "self" : prev));
+  }, [isAuthed]);
+
+  const effectiveMode: "self" | "public" = isAuthed ? mode : "public";
 
   const runAnalyze = useCallback(async () => {
     setLoading(true);
@@ -26,7 +44,13 @@ export default function Home() {
       const response = await fetch("/api/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username, representativeCount, useLlm }),
+        body: JSON.stringify({
+          username: effectiveMode === "self" ? sessionLogin : username,
+          representativeCount,
+          useLlm,
+          mode: effectiveMode,
+          includePrivate: effectiveMode === "self" ? includePrivate : false,
+        }),
       });
 
       const data = await response.json();
@@ -45,7 +69,7 @@ export default function Home() {
     } finally {
       setLoading(false);
     }
-  }, [username, representativeCount, useLlm]);
+  }, [username, representativeCount, useLlm, effectiveMode, includePrivate, sessionLogin]);
 
   function handlePrint() {
     if (typeof window === "undefined") return;
@@ -53,7 +77,7 @@ export default function Home() {
   }
 
   return (
-    <div className="flex h-screen bg-background text-foreground overflow-hidden">
+    <div className="app-shell flex h-screen bg-background text-foreground overflow-hidden">
       <Sidebar
         username={username}
         onUsernameChange={setUsername}
@@ -61,13 +85,17 @@ export default function Home() {
         onRepresentativeCountChange={setRepresentativeCount}
         useLlm={useLlm}
         onUseLlmChange={setUseLlm}
+        mode={effectiveMode}
+        onModeChange={setMode}
+        includePrivate={includePrivate}
+        onIncludePrivateChange={setIncludePrivate}
         loading={loading}
         onSubmit={runAnalyze}
       />
 
-      <main className="flex-1 flex flex-col overflow-hidden">
+      <main className="app-main flex-1 flex flex-col overflow-hidden">
         {/* Toolbar */}
-        <div className="flex items-center justify-between px-6 py-3 border-b border-border bg-background flex-shrink-0 no-print">
+        <div className="flex items-center justify-between px-6 py-3 border-b border-border bg-background shrink-0 no-print">
           <div className="flex items-center gap-2">
             <span className="text-xs text-muted-foreground">예시:</span>
             {EXAMPLE_USERNAMES.map((example) => (
@@ -94,7 +122,7 @@ export default function Home() {
         </div>
 
         {/* Main Content */}
-        <div className="flex-1 overflow-y-auto">
+        <div className="app-scroll flex-1 overflow-y-auto">
           {loading && <LoadingProgress useLlm={useLlm} />}
 
           {error && !loading && (
@@ -122,11 +150,14 @@ export default function Home() {
                 </div>
 
                 <h2 className="text-xl font-bold text-foreground text-center mb-3">
-                  GitHub username을 입력하고 분석을 시작하세요
+                  {isAuthed
+                    ? `@${sessionLogin} 계정 기준 분석을 시작하세요`
+                    : "GitHub username을 입력하고 분석을 시작하세요"}
                 </h2>
                 <p className="text-sm text-muted-foreground text-center mb-8">
-                  사이드바에 username을 입력한 뒤 [분석 시작] 버튼을 누르면
-                  공개 저장소 데이터를 기반으로 개발 활동 추정 리포트를 생성합니다.
+                  {isAuthed
+                    ? "사이드바에서 private 포함 여부와 옵션을 고른 뒤 [분석 시작]을 누르면 본인 저장소 기반 리포트를 생성합니다."
+                    : "사이드바에 username을 입력한 뒤 [분석 시작] 버튼을 누르면 공개 저장소 기반 개발 활동 추정 리포트를 생성합니다."}
                 </p>
 
                 <ul className="space-y-3">
@@ -138,7 +169,7 @@ export default function Home() {
                   ].map((item, i) => (
                     <li key={i} className="flex items-center gap-3 text-sm text-muted-foreground">
                       <span
-                        className="w-2 h-2 rounded-full flex-shrink-0"
+                        className="w-2 h-2 rounded-full shrink-0"
                         style={{ backgroundColor: item.color }}
                       />
                       {item.text}

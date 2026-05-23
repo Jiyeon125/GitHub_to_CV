@@ -169,7 +169,7 @@
 
 @media print {
   @page {
-    margin: 1.5cm;
+    margin: 1.2cm;
     size: A4;
   }
 
@@ -181,9 +181,59 @@
     background: white !important;
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
+    overflow: visible !important;
+  }
+
+  html,
+  body {
+    height: auto !important;
   }
 
   .print-footer {
     display: block !important;
+  }
+
+  /* 화면용 스크롤 레이아웃을 해제해 PDF에서 잘림/스크롤바가 나오지 않게 한다. */
+  .app-shell,
+  .app-main,
+  .app-scroll {
+    display: block !important;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    overflow: visible !important;
+  }
+
+  .app-scroll {
+    padding: 0 !important;
+  }
+
+  .report-root {
+    max-width: none !important;
+    gap: 14px !important;
+    padding: 0 !important;
+  }
+
+  .report-middle-grid {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr !important;
+    gap: 12px !important;
+    align-items: start !important;
+  }
+
+  .report-repo-grid {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr !important;
+    gap: 10px !important;
+  }
+
+  .report-repo-item {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  .report-top {
+    break-inside: avoid;
+    page-break-inside: avoid;
   }
 }
