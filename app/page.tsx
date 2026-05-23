@@ -8,6 +8,7 @@
 import { useCallback, useState } from "react";
 import Sidebar from "./components/Sidebar";
 import Dashboard from "./components/Dashboard";
+import LoadingProgress from "./components/LoadingProgress";
 import type { AnalyzeResponse } from "@/lib/types";
 
 const EXAMPLE_USERNAMES = ["torvalds", "gaearon", "yyx990803"];
@@ -96,15 +97,7 @@ export default function Home() {
           </div>
         </div>
 
-        {loading && (
-          <div className="state-card">
-            <p>GitHub 공개 저장소를 수집하고 분석 중입니다...</p>
-            <p className="muted small">
-              1차 수집 → 대표 repo 선정 → 2차 deep 수집 → 규칙 분석 → (선택) LLM 요약 순서로 진행됩니다.
-              사용자의 repo 수와 네트워크 상태에 따라 30초~2분 정도 걸릴 수 있습니다.
-            </p>
-          </div>
-        )}
+        {loading && <LoadingProgress useLlm={useLlm} />}
 
         {error && (
           <div className="state-card error">
@@ -112,6 +105,8 @@ export default function Home() {
             <p>{error}</p>
             <p className="muted small">
               GitHub API 제한이나 일시적 네트워크 오류인 경우 잠시 후 다시 시도해주세요.
+              동일 username 의 직전 분석 결과가 캐시(10분) 에 남아 있다면 재시도 시 자동으로 캐시된
+              결과가 표시됩니다.
             </p>
           </div>
         )}
@@ -124,10 +119,12 @@ export default function Home() {
               개발 활동 추정 리포트를 생성합니다.
             </p>
             <ul className="muted small">
-              <li>대표 repo는 최신성, description, README, 활동성, 구조 기준으로 자동 선정됩니다.</li>
+              <li>분석 자체는 사용자의 <strong>전체 공개 repo</strong> 를 대상으로 진행됩니다. 사이드바의 슬라이더는 <strong>대시보드에 카드로 표시할 대표 repo 수 (3~5)</strong> 를 정합니다.</li>
+              <li>대표 repo 는 최신성, description, README, 활동성, 구조 기준으로 자동 선정됩니다.</li>
               <li>LLM 옵션을 켜면 사용자 요약과 repo별 포트폴리오 문장 / 이력서 bullet / 면접 질문을 생성합니다.</li>
               <li>LLM API 키가 없으면 자동으로 규칙 기반 결과만 표시됩니다.</li>
               <li>결과 상단의 [PDF로 저장 / 인쇄] 버튼으로 인쇄형 보고서를 출력할 수 있습니다.</li>
+              <li>새로고침하거나 페이지를 떠나도 동일 username 으로 다시 분석하면 10분 이내에는 캐시된 결과가 즉시 표시됩니다.</li>
             </ul>
           </div>
         )}

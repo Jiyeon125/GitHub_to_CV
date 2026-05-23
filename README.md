@@ -19,7 +19,8 @@ GitHub에는 개발 활동 정보가 풍부하지만, 취업 준비생이나 학
 ## 주요 기능
 
 - GitHub username 기반 공개 repository 수집 (1차 shallow + 2차 deep)
-- 대표 repository 자동 선정 (3~10개, 사이드바에서 선택. 6 이상부터는 GitHub rate limit 경고 표시)
+- 분석은 사용자의 **전체 공개 repo** 를 대상으로 진행 (shallow 수집 + 언어 기반 도메인 신호)
+- 그 중 **대표 repo 3~5개** 를 자동 선정해 카드 형태로 표시 (사이드바 슬라이더로 개수 조절)
 - README 신뢰도 평가 (high / medium / low / missing)
 - 구조 / commit 기반 프로젝트 분석
 - 설정 파일 + 디렉토리 구조 기반 기술 스택 추출
@@ -52,14 +53,14 @@ GitHub username 입력 (Sidebar)
   └─► POST /api/analyze
         ├─ 입력 검증 + IP rate limit (route.ts)
         ├─ 캐시 hit 시 즉시 응답 (cache.ts)
-        ├─ 1차 shallow 수집 (github.ts: fetchUserProfile, fetchAllUserRepos)
-        ├─ 대표 repo 선정 (scoring.ts: computeShallowScore)
-        ├─ 2차 deep 수집 (github.ts: fetchDeepRepoData)
+        ├─ 1차 shallow 수집: 모든 공개 repo 메타데이터 (github.ts: fetchAllUserRepos)
+        ├─ 대표 repo 선정 (scoring.ts: computeShallowScore) — 사이드바 슬라이더 개수만큼
+        ├─ 2차 deep 수집: 대표 repo 만 (github.ts: fetchDeepRepoData)
         │     └─ README / root tree / languages / 최근 commit 10 / 설정 파일
         ├─ 규칙 기반 분석
         │     ├─ README 신뢰도 (readmeReliability.ts)
         │     ├─ 기술 스택 추출 (techStack.ts)
-        │     ├─ 분야별 점수 (domainScores.ts → 0~100 정규화)
+        │     ├─ 분야별 점수 (domainScores.ts → 전체 shallow 신호 + 대표 deep 신호 합산 후 0~100 정규화)
         │     ├─ 활동 패턴 (activityPattern.ts, KST 기준)
         │     └─ 태그 후보 (tags.ts)
         ├─ (선택) LLM 호출 via Sookmyung API Gateway (llm.ts)
@@ -182,7 +183,7 @@ MINDLOGIC_API_KEY=
 
 | 유형 | 확인 포인트 |
 | --- | --- |
-| repo가 많은 사용자 (예: 유명 오픈소스 메인테이너) | shallow 페이지네이션 / 대표 repo 3~10 선정 / 캐시 동작 |
+| repo가 많은 사용자 (예: 유명 오픈소스 메인테이너) | shallow 페이지네이션 / 대표 repo 3~5 선정 / 캐시 동작 |
 | repo가 적은 사용자 | 빈 상태 UI / "분석 가능한 공개 저장소가 부족" 경고 |
 | README가 부실한 repo가 많은 사용자 | README badge가 low / missing 으로 표시 / 분석 신뢰도 보수적 표시 |
 | fork repo가 많은 사용자 | "fork 저장소만 공개" 경고 / fork 감점이 점수에 반영 |
@@ -191,7 +192,7 @@ MINDLOGIC_API_KEY=
 각 케이스에서 다음을 확인합니다.
 
 - 앱이 정상 실행되는가
-- 대표 repo가 사용자가 지정한 개수(3~10) 만큼 선정되는가
+- 사이드바에서 지정한 개수(3~5) 만큼 대표 repo 카드가 표시되는가
 - README 신뢰도 badge가 표시되는가
 - 기술 스택이 어느 정도 납득 가능하게 추출되는가
 - 분야별 점수가 0~100 범위로 표시되는가
@@ -228,13 +229,27 @@ UI에 사용자 친화적 한국어 메시지로 표시합니다.
 
 ## 향후 개선 방향
 
-- GitHub OAuth 연동 (rate limit 완화 + 사용자 자가 분석)
-- private repo 분석 옵션 (인증된 사용자에 한해)
+### GitHub OAuth + private repo 분석 (가장 큰 다음 단계)
+
+현재는 공개 repo 만 분석 가능합니다. GitHub OAuth 를 추가하면 본인 인증된 사용자의 **private repo 까지 분석**할 수 있습니다. 구체적으로는 다음 흐름이 필요합니다.
+
+1. **OAuth 인증**: `next-auth` (또는 GitHub OAuth App 직접 구현) 로 GitHub 로그인 추가
+2. **scope 요청**: 사용자에게 `repo` (private 포함) 또는 `public_repo` (공개만) scope 동의를 받음
+3. **사용자별 access token 저장**: 서버 세션이나 암호화된 쿠키에 저장 (DB 도입 시 KMS 권장)
+4. **API 호출 시 사용자 토큰 사용**: 현재 `GITHUB_TOKEN` 환경변수 대신, 로그인한 사용자의 토큰으로 GitHub REST 를 호출. `/user/repos?visibility=private` 같은 인증 전용 엔드포인트도 호출 가능.
+5. **LLM 으로 private 코드 전송 시 사전 동의**: private 정보가 외부 LLM 게이트웨이로 나가므로 "private repo 도 분석/LLM 으로 전송" 체크박스 + 동의 문구 필수
+6. **rate limit 완화 자동 효과**: 인증 토큰 사용 시 시간당 5,000 회로 늘어남
+
+본 MVP 가 "공개 저장소 기준" 으로 명세돼 있어 OAuth 는 의도적으로 미구현 상태이며, 추가 작업 시 보안/동의 흐름을 반드시 함께 설계해야 합니다.
+
+### 기타
+
 - 분석 히스토리 저장 및 이전 결과와 비교
 - PDF 템플릿 고도화 (사진/링크/QR 포함)
 - 사용자가 LLM 출력 문장을 인라인으로 수정하는 기능
 - 멘토 / 리뷰어 공유 링크
 - 교육 기관용 일괄 분석 (CSV 입력 → 다수 PDF 생성)
+- 진행 상태를 서버에서 SSE / streaming 으로 푸시 (현재는 클라이언트가 6초 간격으로 단계 메시지 전환)
 
 ---
 

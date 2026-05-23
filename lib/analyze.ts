@@ -20,7 +20,7 @@ import {
 import { evaluateReadmeReliability } from "./readmeReliability";
 import { extractRepoTechStack, aggregateTechStackDistribution } from "./techStack";
 import {
-  aggregateDomainScores,
+  combineDomainSignals,
   scoreRepoForDomains,
 } from "./domainScores";
 import { analyzeActivityPattern } from "./activityPattern";
@@ -42,12 +42,13 @@ import type {
 } from "./types";
 
 // 대표 repo 개수 허용 범위.
+// - 의미: "대시보드에 카드로 표시할 repo 수". 전체 공개 repo 의 shallow 분석은 별도로 모두 진행.
 // - 3 미만은 사용자 도메인 점수 산출에 표본이 부족함.
-// - 너무 크면 1) GitHub API rate limit(인증 없을 때 시간당 60회, 한 repo deep 수집당 5~6회 호출)
+// - 5 초과는 1) GitHub API rate limit(인증 없을 때 시간당 60회, 한 repo deep 수집당 5~6회 호출)
 //   에 빠르게 도달하고, 2) LLM 프롬프트 길이도 비례해서 늘어남.
-// 그래서 발표 시연 편의를 위해 10 까지 허용하되, UI 에서 6 이상이면 경고를 띄운다.
+// 본 MVP 명세대로 3~5 범위를 유지한다.
 const MIN_REPRESENTATIVE = 3;
-const MAX_REPRESENTATIVE = 10;
+const MAX_REPRESENTATIVE = 5;
 
 function clampCount(value: number): number {
   if (Number.isNaN(value)) return MIN_REPRESENTATIVE;
@@ -228,10 +229,11 @@ export async function runAnalyze(options: AnalyzeOptions): Promise<AnalyzeRespon
   selectedRepos.sort((a, b) => b.score - a.score);
 
   // === 도메인 점수 (사용자 전체) ===
+  // 대표 repo deep 신호 + 전체 공개 repo shallow 신호(언어 기반) 를 합쳐 정규화한다.
   const perRepoDomain = selectedRepos.map((repo) =>
     scoreRepoForDomains(repo, repo.techStack, deepMap.get(repo.id) ?? null, repo.readmeReliability),
   );
-  const domainScores = aggregateDomainScores(perRepoDomain);
+  const domainScores = combineDomainSignals(repos, perRepoDomain);
 
   // === 활동 패턴 ===
   const commitsByRepo = selectedRepos.map((repo) => deepMap.get(repo.id)?.commits ?? []);

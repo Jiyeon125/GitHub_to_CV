@@ -147,3 +147,66 @@ export function computeUserDomainScores(repos: AnalyzedRepo[], deepMap: Map<numb
   );
   return aggregateDomainScores(perRepo);
 }
+
+// === 전체 shallow repo 신호 ===
+// 대표 repo 외 사용자의 다른 공개 repo도 도메인 점수에 영향을 주도록 한다.
+// shallow 단계에서는 language 와 topic 만 알 수 있으므로 신호 강도를 약하게 부여한다.
+const LANGUAGE_DOMAIN_HINT: Record<string, Partial<DomainScores>> = {
+  // Frontend
+  TypeScript: { frontend: 0.6 },
+  JavaScript: { frontend: 0.5 },
+  Vue: { frontend: 1 },
+  Svelte: { frontend: 1 },
+  HTML: { frontend: 0.4 },
+  CSS: { frontend: 0.3 },
+  // Backend
+  Java: { backend: 0.7 },
+  Kotlin: { backend: 0.7 },
+  Go: { backend: 0.7 },
+  Ruby: { backend: 0.6 },
+  PHP: { backend: 0.5 },
+  "C#": { backend: 0.6 },
+  // Data / ML
+  Python: { data_ml: 0.4, backend: 0.3 },
+  R: { data_ml: 0.8 },
+  Jupyter: { data_ml: 0.8 },
+  "Jupyter Notebook": { data_ml: 0.8 },
+  // Mobile
+  Swift: { mobile: 1 },
+  Dart: { mobile: 1 },
+  "Objective-C": { mobile: 0.7 },
+  // DevOps
+  Shell: { devops: 0.4 },
+  Dockerfile: { devops: 0.7 },
+  HCL: { devops: 0.8 }, // Terraform
+};
+
+function scoreShallowRepo(repo: GitHubRepo): DomainScores {
+  const out: DomainScores = { ...ZERO };
+  if (!repo.language) return out;
+
+  const hint = LANGUAGE_DOMAIN_HINT[repo.language];
+  if (!hint) return out;
+
+  (Object.keys(hint) as (keyof DomainScores)[]).forEach((k) => {
+    out[k] = hint[k] ?? 0;
+  });
+
+  // fork repo 는 학습/포크 용도가 많아 신호를 절반으로 약화.
+  if (repo.fork) {
+    (Object.keys(out) as (keyof DomainScores)[]).forEach((k) => {
+      out[k] *= 0.5;
+    });
+  }
+
+  return out;
+}
+
+// 사용자 도메인 점수: 전체 shallow 신호 + 대표 repo deep 신호 결합 후 정규화
+export function combineDomainSignals(
+  allShallowRepos: GitHubRepo[],
+  representativeDomainScores: DomainScores[],
+): DomainScores {
+  const shallowScores = allShallowRepos.map(scoreShallowRepo);
+  return aggregateDomainScores([...shallowScores, ...representativeDomainScores]);
+}

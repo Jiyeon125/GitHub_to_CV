@@ -63,21 +63,19 @@ export default function Sidebar({
         </label>
 
         <label className="field">
-          <span>분석 대상 repo 수: {representativeCount}</span>
+          <span>대표 카드로 표시할 repo 수: {representativeCount}</span>
           <input
             type="range"
             min={3}
-            max={10}
+            max={5}
             step={1}
             value={representativeCount}
             onChange={(event) => onRepresentativeCountChange(Number(event.target.value))}
           />
-          {representativeCount >= 6 && (
-            <span className="muted xsmall">
-              {representativeCount}개를 분석하면 GitHub API 호출이 늘어나 rate limit에 도달할 수
-              있습니다. {" "}<code>GITHUB_TOKEN</code> 설정을 권장합니다.
-            </span>
-          )}
+          <span className="muted xsmall">
+            분석 자체는 사용자의 전체 공개 repo 를 대상으로 진행하고,
+            그 중 상위 {representativeCount}개만 카드로 보여 줍니다.
+          </span>
         </label>
 
         <label className="field-inline">

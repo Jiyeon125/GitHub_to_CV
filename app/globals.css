@@ -238,6 +238,69 @@ button.link {
   margin: 0 0 0.2rem;
 }
 
+/* === Loading progress card === */
+.loading-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+}
+.loading-header {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+.loading-spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--border);
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  animation: spin 0.9s linear infinite;
+  flex-shrink: 0;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.loading-current {
+  margin: 0;
+  font-size: 0.95rem;
+}
+.loading-steps {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  border-top: 1px solid var(--border);
+  padding-top: 0.6rem;
+}
+.loading-steps li {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+  transition: color 0.2s ease;
+}
+.loading-steps li.step-active {
+  color: var(--text);
+  font-weight: 600;
+}
+.loading-steps li.step-done {
+  color: var(--high);
+}
+.step-marker {
+  width: 18px;
+  text-align: center;
+  font-weight: 600;
+}
+.loading-hint {
+  margin: 0;
+}
+
 .tag-card-row {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
