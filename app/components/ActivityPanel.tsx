@@ -14,8 +14,8 @@ function pct(value: number): string {
 export default function ActivityPanel({ pattern }: Props) {
   if (pattern.commit_sample_size === 0) {
     return (
-      <div className="bg-card border border-border rounded-xl p-6">
-        <h3 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-4">
+      <div className="bg-card border border-border rounded-xl p-4 lg:p-5">
+        <h3 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-3">
           활동 패턴
         </h3>
         <p className="text-sm text-muted-foreground">분석 가능한 commit 데이터가 부족합니다.</p>
@@ -24,15 +24,15 @@ export default function ActivityPanel({ pattern }: Props) {
   }
 
   return (
-    <div className="bg-card border border-border rounded-xl p-6">
-      <div className="flex items-center justify-between mb-4">
+    <div className="bg-card border border-border rounded-xl p-4 lg:p-5">
+      <div className="flex items-center justify-between mb-3">
         <h3 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
           활동 패턴
         </h3>
         <span className="text-xs text-muted-foreground">(KST 기준)</span>
       </div>
 
-      <div className="grid grid-cols-3 gap-2 sm:gap-3 mb-4">
+      <div className="grid grid-cols-3 gap-2 sm:gap-3 mb-3">
         <ActivityStatTile
           label="야간 비율"
           value={pct(pattern.night_ratio)}

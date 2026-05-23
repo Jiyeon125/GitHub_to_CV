@@ -41,8 +41,8 @@ export default function TechStackPanel({
   const safeLanguageDenominator = Math.max(1, languageDenominator);
 
   return (
-    <div className="bg-card border border-border rounded-xl p-6">
-      <h3 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-4">
+    <div className="bg-card border border-border rounded-xl p-4 lg:p-5">
+      <h3 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-3">
         기술 스택
       </h3>
 
@@ -61,7 +61,7 @@ export default function TechStackPanel({
               />
             ))}
           </div>
-          <p className="text-[11px] text-muted-foreground mb-6">
+          <p className="text-[11px] text-muted-foreground mb-4">
             대표 저장소 {safeTechDenominator}개 중 해당 스택이 감지된 비율
           </p>
         </>

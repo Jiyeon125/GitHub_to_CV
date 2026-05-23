@@ -24,9 +24,9 @@ export default function Dashboard({ data }: Props) {
   const scopeLabel = data.mode === "self" && data.privateIncluded ? "전체 저장소" : "공개 저장소";
 
   return (
-    <div className="report-root flex flex-col gap-5 p-4 sm:p-6 max-w-[1200px] mx-auto">
+    <div className="report-root flex w-full flex-col gap-3 p-3 lg:p-4 max-w-[1200px] mx-auto">
       {/* Disclaimer */}
-      <div className="report-top bg-[rgba(245,158,11,0.08)] border-l-4 border-l-[#F59E0B] p-3 rounded-r-lg text-sm text-muted-foreground" role="note">
+      <div className="report-top bg-[rgba(245,158,11,0.08)] border-l-4 border-l-[#F59E0B] p-2.5 rounded-r-lg text-sm text-muted-foreground" role="note">
         ⚠{" "}
         {data.mode === "self" && data.privateIncluded
           ? "이 리포트는 본인 저장소(private 포함) 기반 추정 결과입니다."
@@ -35,7 +35,7 @@ export default function Dashboard({ data }: Props) {
       </div>
 
       {/* Headline Card */}
-      <div className="bg-card border border-border rounded-xl p-6">
+      <div className="bg-card border border-border rounded-xl p-4 lg:p-5">
         <p className="text-sm text-muted-foreground mb-2 font-mono">
           <a
             href={data.profileUrl}
@@ -56,7 +56,7 @@ export default function Dashboard({ data }: Props) {
             </span>
           )}
         </p>
-        <h2 className="text-2xl font-bold mb-3 text-foreground leading-tight">
+        <h2 className="text-xl lg:text-2xl font-bold mb-2 text-foreground leading-tight">
           {data.llm?.headline || `${scopeLabel} 기반 개발 활동 추정 리포트`}
         </h2>
         <p className="text-sm text-muted-foreground leading-relaxed">{data.summary}</p>
@@ -73,7 +73,7 @@ export default function Dashboard({ data }: Props) {
 
       {/* Tag Row */}
       {tags.length > 0 && (
-        <div className="flex gap-3 overflow-x-auto pb-2">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
           {tags.map((tag, i) => (
             <TagCard key={`${tag.name}-${i}`} tag={tag.name} reason={tag.reason} />
           ))}
@@ -81,8 +81,8 @@ export default function Dashboard({ data }: Props) {
       )}
 
       {/* Middle Grid: Radar + Tech/Activity */}
-      <div className="report-middle-grid grid grid-cols-1 lg:grid-cols-5 gap-5">
-        <div className="lg:col-span-2 bg-card border border-border rounded-xl p-6">
+      <div className="report-middle-grid grid grid-cols-1 lg:grid-cols-5 gap-3 lg:gap-4">
+        <div className="lg:col-span-2 bg-card border border-border rounded-xl p-4 lg:p-5">
           <div className="mb-3">
             <h3 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-1">
               분야별 점수
@@ -98,7 +98,7 @@ export default function Dashboard({ data }: Props) {
           )}
         </div>
 
-        <div className="lg:col-span-3 flex flex-col gap-5">
+        <div className="lg:col-span-3 flex flex-col gap-3 lg:gap-4">
           <TechStackPanel
             techStack={data.techStackDistribution}
             languages={data.languageDistribution}
@@ -131,7 +131,7 @@ export default function Dashboard({ data }: Props) {
             </p>
           </div>
         ) : (
-          <div className="report-repo-grid grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
+          <div className="report-repo-grid grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
             {data.selectedRepos.map((repo) => (
               <div key={repo.id} className="report-repo-item">
                 <RepoCard repo={repo} />
