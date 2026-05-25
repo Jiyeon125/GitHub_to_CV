@@ -1,25 +1,20 @@
+// 분석 라우트
+// - PoC의 입력 검증, IP rate limit, 에러 응답 포맷은 그대로 유지한다.
+// - 실제 분석 파이프라인은 lib/analyze.ts 의 runAnalyze 에 위임한다.
+// - 동일 입력에 대한 캐시도 여기서 적용해 GitHub API 호출 비용을 줄인다.
+
 import { NextRequest, NextResponse } from "next/server";
-import { getTopLanguage, rankRepresentativeRepos, type GitHubRepo } from "@/lib/scoring";
+import { getToken } from "next-auth/jwt";
 
-type AnalyzeResponse = {
-  username: string;
-  profileUrl: string;
-  publicRepos: number;
-  selectedRepos: Array<ReturnType<typeof rankRepresentativeRepos>[number] & { hasReadme: boolean }>;
-  topLanguage: string;
-  summary: string;
-};
-
-const BASE_HEADERS: HeadersInit = {
-  Accept: "application/vnd.github+json",
-  "X-GitHub-Api-Version": "2022-11-28",
-};
+import { runAnalyze } from "@/lib/analyze";
+import { GitHubApiError } from "@/lib/github";
+import { buildAnalyzeCacheKey, getCached, setCached } from "@/lib/cache";
+import type { AnalyzeResponse } from "@/lib/types";
 
 const GITHUB_USERNAME_REGEX = /^(?!-)(?!.*--)[A-Za-z0-9-]{1,39}(?<!-)$/;
 const RATE_LIMIT_WINDOW_MS = 60_000;
 const RATE_LIMIT_MAX_REQUESTS = 20;
-// 메모리 기반 제한: 만료된 키를 정리해 Map이 무한히 커지는 것을 방지합니다.
-// 다중 인스턴스/서버리스 프로덕션에서는 공유 저장소(Redis, Upstash 등)를 사용하세요.
+// 메모리 기반 rate limit (PoC와 동일). 만료된 키는 주기적으로 정리한다.
 const rateLimitStore = new Map<string, { count: number; resetAt: number }>();
 
 class ApiError extends Error {
@@ -32,79 +27,6 @@ class ApiError extends Error {
   }
 }
 
-function buildHeaders() {
-  const token = process.env.GITHUB_TOKEN;
-  if (!token) {
-    return BASE_HEADERS;
-  }
-
-  return {
-    ...BASE_HEADERS,
-    Authorization: `Bearer ${token}`,
-  };
-}
-
-async function fetchGitHub<T>(url: string): Promise<T> {
-  const response = await fetch(url, {
-    headers: buildHeaders(),
-    next: { revalidate: 0 },
-  });
-
-  if (!response.ok) {
-    if (response.status === 404) {
-      throw new ApiError(404, "GitHub user not found.", `GitHub 404 for URL: ${url}`);
-    }
-
-    if (response.status === 403) {
-      throw new ApiError(
-        429,
-        "External API rate limit reached. Try again shortly.",
-        `GitHub 403 rate limit for URL: ${url}`,
-      );
-    }
-
-    throw new ApiError(
-      502,
-      "Failed to fetch data from GitHub.",
-      `GitHub API failed with status ${response.status} for URL: ${url}`,
-    );
-  }
-
-  return response.json();
-}
-
-const GITHUB_REPOS_PER_PAGE = 100;
-
-async function fetchAllUserRepos(username: string): Promise<GitHubRepo[]> {
-  const repos: GitHubRepo[] = [];
-  let page = 1;
-
-  while (true) {
-    const batch = await fetchGitHub<GitHubRepo[]>(
-      `https://api.github.com/users/${username}/repos?sort=updated&per_page=${GITHUB_REPOS_PER_PAGE}&page=${page}`,
-    );
-
-    repos.push(...batch);
-
-    if (batch.length < GITHUB_REPOS_PER_PAGE) {
-      break;
-    }
-
-    page += 1;
-  }
-
-  return repos;
-}
-
-async function hasReadme(owner: string, repo: string): Promise<boolean> {
-  const response = await fetch(`https://api.github.com/repos/${owner}/${repo}/readme`, {
-    headers: buildHeaders(),
-    next: { revalidate: 0 },
-  });
-
-  return response.ok;
-}
-
 function isValidGitHubUsername(username: string) {
   return GITHUB_USERNAME_REGEX.test(username);
 }
@@ -114,15 +36,12 @@ function getClientIp(request: NextRequest) {
   if (forwardedFor) {
     return forwardedFor.split(",")[0]?.trim() || "unknown";
   }
-
   return request.headers.get("x-real-ip")?.trim() || "unknown";
 }
 
 function pruneExpiredRateLimitEntries(now: number) {
   for (const [key, entry] of rateLimitStore) {
-    if (now > entry.resetAt) {
-      rateLimitStore.delete(key);
-    }
+    if (now > entry.resetAt) rateLimitStore.delete(key);
   }
 }
 
@@ -140,7 +59,7 @@ function enforceRateLimit(clientIp: string) {
   if (current.count >= RATE_LIMIT_MAX_REQUESTS) {
     throw new ApiError(
       429,
-      "Too many requests. Please try again in a minute.",
+      "요청 한도를 초과했습니다. 잠시 후 다시 시도하십시오.",
       `Rate limit exceeded for IP: ${clientIp}`,
     );
   }
@@ -155,58 +74,73 @@ export async function POST(request: NextRequest) {
     enforceRateLimit(clientIp);
 
     const body = await request.json().catch(() => null);
-    const username = String(body?.username ?? "").trim();
+    const rawUsername = String(body?.username ?? "").trim();
+    const useLlm = Boolean(body?.useLlm);
+    const representativeCount = Number(body?.representativeCount ?? 3);
+    const requestedMode = body?.mode === "self" ? "self" : "public";
+    const includePrivateRequested = Boolean(body?.includePrivate);
 
-    if (!username) {
-      throw new ApiError(400, "Username is required.", "Missing username in request body");
+    // NextAuth JWT 에서 access_token / login 추출
+    // getToken 은 쿠키 기반이라 클라이언트가 위조할 수 없다.
+    const jwt = await getToken({
+      req: request,
+      secret: process.env.NEXTAUTH_SECRET,
+    });
+    const sessionLogin =
+      typeof jwt?.login === "string" && jwt.login.length > 0 ? jwt.login : null;
+    const sessionAccessToken =
+      typeof jwt?.accessToken === "string" && jwt.accessToken.length > 0
+        ? jwt.accessToken
+        : null;
+
+    // === 모드 결정 ===
+    // 1) client 가 self 요청 + 세션 있음 + (username 미지정 or 본인 username) → self
+    // 2) 그 외에는 public 모드. private 옵션은 무시.
+    let mode: "self" | "public";
+    let username = rawUsername;
+    let includePrivate = false;
+
+    if (requestedMode === "self" && sessionAccessToken && sessionLogin) {
+      mode = "self";
+      // self 모드는 항상 본인 계정으로 강제.
+      username = sessionLogin;
+      includePrivate = includePrivateRequested;
+    } else {
+      mode = "public";
+      if (!username) {
+        throw new ApiError(400, "GitHub username을 입력하십시오.", "Missing username");
+      }
+      if (!isValidGitHubUsername(username)) {
+        throw new ApiError(
+          400,
+          "GitHub username 형식이 올바르지 않습니다.",
+          `Invalid username: ${username}`,
+        );
+      }
     }
 
-    if (!isValidGitHubUsername(username)) {
-      throw new ApiError(
-        400,
-        "Invalid GitHub username format.",
-        `Invalid GitHub username received: ${username}`,
-      );
-    }
-
-    const user = await fetchGitHub<{ public_repos: number; html_url: string }>(
-      `https://api.github.com/users/${username}`,
-    );
-
-    const repos = await fetchAllUserRepos(username);
-
-    if (!repos.length) {
-      const emptyPayload: AnalyzeResponse = {
-        username,
-        profileUrl: user.html_url,
-        publicRepos: user.public_repos,
-        selectedRepos: [],
-        topLanguage: "Unknown",
-        summary: `${username} has no public repositories available for this PoC.`,
-      };
-
-      return NextResponse.json(emptyPayload);
-    }
-
-    const ranked = rankRepresentativeRepos(repos);
-    const withReadme = await Promise.all(
-      ranked.map(async (repo) => ({
-        ...repo,
-        hasReadme: await hasReadme(username, repo.name),
-      })),
-    );
-
-    const topLanguage = getTopLanguage(repos);
-    const summary = `${username} has ${user.public_repos} public repos. Top language: ${topLanguage}. Showing 3 representative repos using explicit rule-based scoring.`;
-
-    const payload: AnalyzeResponse = {
+    // 캐시 확인 (TTL 10분). 동일 입력에 한해 GitHub/LLM 비용을 절약한다.
+    const cacheKey = buildAnalyzeCacheKey({
       username,
-      profileUrl: user.html_url,
-      publicRepos: user.public_repos,
-      selectedRepos: withReadme,
-      topLanguage,
-      summary,
-    };
+      representativeCount,
+      useLlm,
+      mode,
+      includePrivate,
+    });
+    const cached = getCached<AnalyzeResponse>(cacheKey);
+    if (cached) {
+      return NextResponse.json({ ...cached, cached: true });
+    }
+
+    const payload = await runAnalyze(
+      { username, representativeCount, useLlm },
+      {
+        mode,
+        includePrivate,
+        userAccessToken: mode === "self" ? sessionAccessToken : null,
+      },
+    );
+    setCached(cacheKey, payload);
 
     return NextResponse.json(payload);
   } catch (error) {
@@ -214,8 +148,11 @@ export async function POST(request: NextRequest) {
       console.error(`[analyze] ${error.logMessage}`);
       return NextResponse.json({ error: error.publicMessage }, { status: error.status });
     }
-
+    if (error instanceof GitHubApiError) {
+      console.error(`[analyze] ${error.logMessage}`);
+      return NextResponse.json({ error: error.publicMessage }, { status: error.status });
+    }
     console.error("[analyze] Unexpected server error", error);
-    return NextResponse.json({ error: "Unexpected server error." }, { status: 500 });
+    return NextResponse.json({ error: "예상치 못한 서버 오류가 발생했습니다." }, { status: 500 });
   }
 }
