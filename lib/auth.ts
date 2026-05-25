@@ -34,6 +34,7 @@ declare module "next-auth/jwt" {
 const GITHUB_SCOPE = "read:user repo";
 
 export const authOptions: NextAuthOptions = {
+  secret: process.env.NEXTAUTH_SECRET,
   providers: [
     GithubProvider({
       clientId: process.env.GITHUB_CLIENT_ID ?? "",

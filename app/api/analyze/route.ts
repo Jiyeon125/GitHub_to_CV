@@ -68,6 +68,32 @@ function enforceRateLimit(clientIp: string) {
   rateLimitStore.set(clientIp, current);
 }
 
+async function readSessionFromRequest(request: NextRequest) {
+  if (!process.env.NEXTAUTH_SECRET) {
+    console.warn("[analyze] NEXTAUTH_SECRET is not configured; continuing without session.");
+    return { sessionLogin: null, sessionAccessToken: null };
+  }
+
+  try {
+    const jwt = await getToken({
+      req: request,
+      secret: process.env.NEXTAUTH_SECRET,
+    });
+
+    return {
+      sessionLogin:
+        typeof jwt?.login === "string" && jwt.login.length > 0 ? jwt.login : null,
+      sessionAccessToken:
+        typeof jwt?.accessToken === "string" && jwt.accessToken.length > 0
+          ? jwt.accessToken
+          : null,
+    };
+  } catch (error) {
+    console.error("[analyze] Failed to read NextAuth token; continuing as public mode.", error);
+    return { sessionLogin: null, sessionAccessToken: null };
+  }
+}
+
 export async function POST(request: NextRequest) {
   try {
     const clientIp = getClientIp(request);
@@ -80,18 +106,12 @@ export async function POST(request: NextRequest) {
     const requestedMode = body?.mode === "self" ? "self" : "public";
     const includePrivateRequested = Boolean(body?.includePrivate);
 
-    // NextAuth JWT 에서 access_token / login 추출
-    // getToken 은 쿠키 기반이라 클라이언트가 위조할 수 없다.
-    const jwt = await getToken({
-      req: request,
-      secret: process.env.NEXTAUTH_SECRET,
-    });
-    const sessionLogin =
-      typeof jwt?.login === "string" && jwt.login.length > 0 ? jwt.login : null;
-    const sessionAccessToken =
-      typeof jwt?.accessToken === "string" && jwt.accessToken.length > 0
-        ? jwt.accessToken
-        : null;
+    // NextAuth JWT 에서 access_token / login 추출.
+    // 배포 환경에서 OAuth 설정이 빠져도 공개 분석 모드는 계속 사용할 수 있게 한다.
+    const { sessionLogin, sessionAccessToken } =
+      requestedMode === "self"
+        ? await readSessionFromRequest(request)
+        : { sessionLogin: null, sessionAccessToken: null };
 
     // === 모드 결정 ===
     // 1) client 가 self 요청 + 세션 있음 + (username 미지정 or 본인 username) → self
