@@ -196,7 +196,7 @@ export default function Sidebar({
           <Slider
             value={[representativeCount]}
             onValueChange={(value) => onRepresentativeCountChange(value[0])}
-            min={3}
+            min={1}
             max={5}
             step={1}
             className="w-full"

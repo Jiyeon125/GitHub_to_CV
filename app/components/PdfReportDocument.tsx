@@ -48,7 +48,6 @@ const PDF_CONFIG = {
   maxTags: 4,
   maxTechStacks: 6,
   maxLanguages: 5,
-  maxRepos: 3,
   maxRepoTechChips: 8,
   maxResumeBullets: 3,
   maxInterviewQuestions: 2,
@@ -258,16 +257,16 @@ const styles = StyleSheet.create({
   barRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    gap: 6,
     marginBottom: 6,
   },
   barLabel: {
-    width: 90,
+    width: 76,
     fontSize: 8.5,
     color: COLORS.textPrimary,
   },
   barValue: {
-    width: 28,
+    width: 32,
     textAlign: "right",
     fontSize: 8.5,
     color: COLORS.textMuted,
@@ -571,7 +570,7 @@ function GradientBarRow({
   percentage: number;
   index: number;
 }) {
-  const trackWidth = 180;
+  const trackWidth = 108;
   const height = 6;
   const safe = clampPercent(percentage);
   const fillWidth = (trackWidth * safe) / 100;
@@ -824,7 +823,7 @@ export default function PdfReportDocument({ data }: { data: AnalyzeResponse }) {
         {/* Repositories */}
         <View style={styles.sectionWrap}>
           <Text style={styles.sectionTitle}>대표 저장소</Text>
-          {data.selectedRepos.slice(0, PDF_CONFIG.maxRepos).map((repo) => (
+          {data.selectedRepos.map((repo) => (
             <View key={repo.id} style={styles.repoCard} minPresenceAhead={120}>
               <View style={styles.repoHeader}>
                 <Link src={repo.html_url} style={styles.repoName}>

@@ -46,11 +46,11 @@ import type {
 
 // 대표 repo 개수 허용 범위.
 // - 의미: "대시보드에 카드로 표시할 repo 수". 전체 공개 repo 의 shallow 분석은 별도로 모두 진행.
-// - 3 미만은 사용자 도메인 점수 산출에 표본이 부족함.
+// - 1개만 선택해도 PDF/화면 미리보기 용도로 분석할 수 있게 허용한다.
 // - 5 초과는 1) GitHub API rate limit(인증 없을 때 시간당 60회, 한 repo deep 수집당 5~6회 호출)
 //   에 빠르게 도달하고, 2) LLM 프롬프트 길이도 비례해서 늘어남.
-// 본 MVP 명세대로 3~5 범위를 유지한다.
-const MIN_REPRESENTATIVE = 3;
+// 사용자 설정 범위와 동일하게 1~5 범위를 유지한다.
+const MIN_REPRESENTATIVE = 1;
 const MAX_REPRESENTATIVE = 5;
 
 function clampCount(value: number): number {

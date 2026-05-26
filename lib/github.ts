@@ -2,7 +2,7 @@
 // - PoC 단계 라우트(app/api/analyze/route.ts)에서 인라인으로 작성됐던 fetch 로직을
 //   분리해 재사용 가능한 형태로 정리한다. (수집/분석/렌더링 책임 분리 원칙)
 // - 1차 shallow collection: 모든 공개 repo
-// - 2차 deep collection: 대표 repo 3~5개에 대해서만 호출
+// - 2차 deep collection: 대표 repo 1~5개에 대해서만 호출
 
 import type { GitHubRepo } from "./scoring";
 import type { DeepRepoData, RepoCommit, TreeEntry } from "./types";

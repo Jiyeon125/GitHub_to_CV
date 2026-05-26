@@ -116,6 +116,6 @@ export type AnalyzeResponse = {
 
 export type AnalyzeOptions = {
   username: string;
-  representativeCount: number; // 3~5
+  representativeCount: number; // 1~5
   useLlm: boolean;
 };
