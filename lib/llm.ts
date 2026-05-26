@@ -545,6 +545,82 @@ export async function generateUserReport(
   };
 }
 
+// === 대표 repo 선정 리랭커 ===
+// 규칙 기반으로 추린 후보 풀(보통 6~12개)을 받아 포트폴리오 관점에서 N 개를 LLM 이 고르도록 한다.
+// - 입력은 메타데이터(이름/desc/언어/topics/별점/사이즈/recency/topic 다양성)만 사용. deep 데이터 불필요.
+// - 결정성을 위해 temperature=0, stableStringify(payload), seed=hash(prompt+payload+model) 그대로.
+// - 응답은 강제 JSON: { "picks": [{ "name": string, "reason": string }] }
+// - 실패/파싱 실패 시 null → 호출 측에서 규칙 기반 fallback 으로 그대로 진행.
+
+export type RepoSelectionCandidate = {
+  name: string;
+  description: string | null;
+  language: string | null;
+  topics: string[];
+  stargazers_count: number;
+  size: number | null;
+  updated_at: string;
+  is_fork: boolean;
+  rule_score: number; // 규칙 기반 점수 (참고용)
+};
+
+const SELECTION_SYSTEM_PROMPT = `당신은 GitHub 프로필을 이력서·포트폴리오 관점에서 평가하는 채용/커리어 리뷰어입니다.
+주어진 후보 저장소 목록에서 "포트폴리오에 대표로 보여주기 가장 좋은" 저장소를 정확히 N 개 골라주세요.
+
+[입력 형식]
+{ "limit": number, "candidates": [{ "name", "description", "language", "topics", "stargazers_count", "size", "updated_at", "is_fork", "rule_score" }, ...] }
+
+[선정 원칙]
+- 학습/튜토리얼/클론 코딩/빈 스캐폴드 보다 본인이 직접 설계·구현한 흔적이 있는 repo 를 선호.
+- 같은 언어/도메인이 N 개 모두 겹치지 않도록 다양성을 약간 반영(언어/topic 이 다른 후보가 동률이면 가산).
+- description / topics 가 충실한 repo 를 약간 선호.
+- fork 는 description 이 본인 작성으로 보일 때만 고려.
+- rule_score 는 참고 신호일 뿐 절대 기준이 아님. 위 원칙과 충돌하면 본인 판단을 우선.
+
+[출력 형식 절대 규칙]
+- 응답 전체는 유효한 JSON 객체 하나. "{" 로 시작 "}" 로 끝.
+- 마크다운/설명/코드블록(\`\`\`) 금지. 위반 시 응답이 자동 폐기됨.
+- 스키마:
+  { "picks": [ { "name": string, "reason": string } ] }
+  - picks.length 는 입력 limit 과 정확히 같아야 함. 부족하면 후순위라도 채워서 limit 을 맞추기.
+  - 각 name 은 반드시 입력 candidates 중 하나와 정확히 일치. 새 이름 만들지 말 것.
+  - reason 은 1문장, 60자 이내, 추정형 ("~ 신호가 있어 대표성이 높음" 등).`;
+
+export async function rerankRepoSelection(
+  config: LlmConfig | null | undefined,
+  candidates: RepoSelectionCandidate[],
+  limit: number,
+): Promise<Array<{ name: string; reason: string }> | null> {
+  if (detectLlmProviderFromConfig(config) === "none") return null;
+  if (candidates.length === 0 || limit <= 0) return null;
+
+  const text = await callProvider(
+    config,
+    SELECTION_SYSTEM_PROMPT,
+    { limit, candidates },
+    "repo-selection-v1",
+  );
+  const parsed = tryParseJson<{ picks?: Array<{ name?: string; reason?: string }> }>(text);
+  if (!parsed || !Array.isArray(parsed.picks)) return null;
+
+  // 입력에 존재하는 이름만 통과시킨다 (할루시네이션 방지).
+  const validNames = new Set(candidates.map((c) => c.name));
+  const seen = new Set<string>();
+  const picks: Array<{ name: string; reason: string }> = [];
+  for (const item of parsed.picks) {
+    const name = typeof item?.name === "string" ? item.name : "";
+    if (!validNames.has(name) || seen.has(name)) continue;
+    seen.add(name);
+    picks.push({
+      name,
+      reason: typeof item?.reason === "string" ? item.reason.slice(0, 120) : "",
+    });
+    if (picks.length >= limit) break;
+  }
+
+  return picks.length > 0 ? picks : null;
+}
+
 export async function generateRepoReports(
   config: LlmConfig | null | undefined,
   payload: RepoReportInput[],

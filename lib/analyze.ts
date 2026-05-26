@@ -34,8 +34,10 @@ import {
   detectLlmProviderFromConfig,
   generateRepoReports,
   generateUserReport,
+  rerankRepoSelection,
   LLM_MODEL_PRESETS,
   type LlmConfig,
+  type RepoSelectionCandidate,
 } from "./llm";
 import type {
   AnalyzeOptions,
@@ -74,8 +76,9 @@ function resolveLlmModelLabel(config: LlmConfig | null | undefined): string | nu
   return preset?.label ?? null;
 }
 
-// 비-fork & description 있는 repo 우선, 부족하면 fork 포함
-function pickRepresentativeCandidates(repos: GitHubRepo[], count: number): ScoredRepo[] {
+// 1차 풀(candidate pool): 모든 repo 를 점수화한 뒤 non-fork 우선으로 정렬한다.
+// LLM/MMR 단계에서 다시 줄이므로 여기서는 후보 폭(K)을 넉넉히 가져간다.
+function buildScoredPool(repos: GitHubRepo[]): ScoredRepo[] {
   const scored: ScoredRepo[] = repos.map((repo) => {
     const { score, breakdown } = computeShallowScore(repo);
     const { legacyScore } = computeRepoScore(repo);
@@ -91,9 +94,66 @@ function pickRepresentativeCandidates(repos: GitHubRepo[], count: number): Score
 
   const nonForks = scored.filter((r) => !r.fork).sort((a, b) => b.score - a.score);
   const forks = scored.filter((r) => r.fork).sort((a, b) => b.score - a.score);
-  const ordered = [...nonForks, ...forks];
+  return [...nonForks, ...forks];
+}
 
-  return ordered.slice(0, count);
+// MMR 비슷한 다양성 선정.
+// - 첫 1 개: 점수 top.
+// - 이후: "이미 선택된 후보들과 언어/topics 중복이 적을수록" 작은 가산점을 주어 다양성 확보.
+// - 입력 풀은 buildScoredPool 결과를 그대로 사용한다.
+function pickDiverseCandidates(pool: ScoredRepo[], limit: number): ScoredRepo[] {
+  if (limit <= 0 || pool.length === 0) return [];
+  if (pool.length <= limit) return pool.slice();
+
+  const picked: ScoredRepo[] = [];
+  const remaining = pool.slice();
+
+  // 1) 첫 후보: 점수 top
+  picked.push(remaining.shift()!);
+
+  while (picked.length < limit && remaining.length > 0) {
+    const usedLanguages = new Set(
+      picked.map((p) => p.language ?? "").filter((v) => v.length > 0),
+    );
+    const usedTopics = new Set<string>();
+    for (const p of picked) {
+      for (const t of p.topics ?? []) usedTopics.add(t);
+    }
+
+    let bestIdx = 0;
+    let bestScore = -Infinity;
+    for (let i = 0; i < remaining.length; i++) {
+      const r = remaining[i];
+      // 다양성 보너스: 새 언어 +6, 겹치는 topics 가 0개면 +3.
+      // (점수 100 만점 대비 작은 가산이라 베이스 점수 차이가 크면 베이스가 이긴다.)
+      const diversityBonus =
+        (r.language && !usedLanguages.has(r.language) ? 6 : 0) +
+        (((r.topics ?? []).every((t) => !usedTopics.has(t))) ? 3 : 0);
+      const adjusted = r.score + diversityBonus;
+      if (adjusted > bestScore) {
+        bestScore = adjusted;
+        bestIdx = i;
+      }
+    }
+    picked.push(remaining.splice(bestIdx, 1)[0]);
+  }
+
+  return picked;
+}
+
+// LLM 리랭커 호환용 후보 메타 직렬화
+function toSelectionCandidate(repo: ScoredRepo): RepoSelectionCandidate {
+  return {
+    name: repo.name,
+    description: repo.description,
+    language: repo.language,
+    topics: repo.topics ?? [],
+    stargazers_count: repo.stargazers_count,
+    size: typeof repo.size === "number" ? repo.size : null,
+    updated_at: repo.updated_at,
+    is_fork: !!repo.fork,
+    rule_score: repo.score,
+  };
 }
 
 // 단일 repo deep 분석을 AnalyzedRepo로 변환
@@ -284,8 +344,61 @@ export async function runAnalyze(
     warnings.push("fork 저장소만 확인되어 분석 신뢰도가 낮을 수 있습니다.");
   }
 
-  // === 대표 repo 선정 (shallow 점수 기준) ===
-  const candidates = pickRepresentativeCandidates(repos, representativeCount);
+  // === 대표 repo 선정 ===
+  // 1) 규칙 점수로 전체 풀 정렬 → 2) MMR 비슷한 다양성으로 K(=2~3배) 후보를 압축 →
+  // 3) LLM 사용 가능하면 후보 메타만 보내 N 개를 리랭킹 → 4) 실패/비활성이면 다양성 선출 결과 그대로 사용.
+  const llmConfigEarly = options.llmConfig ?? null;
+  const llmCanRerank = options.useLlm && detectLlmProviderFromConfig(llmConfigEarly) !== "none";
+
+  const scoredPool = buildScoredPool(repos);
+  const poolTargetSize = Math.min(
+    scoredPool.length,
+    Math.max(representativeCount * 3, 8, llmCanRerank ? 12 : representativeCount),
+  );
+  const diverseCandidates = pickDiverseCandidates(scoredPool, poolTargetSize);
+
+  let candidates: ScoredRepo[];
+  let selectionReasonByName: Map<string, string> = new Map();
+
+  if (llmCanRerank && diverseCandidates.length > representativeCount) {
+    try {
+      const llmPicks = await rerankRepoSelection(
+        llmConfigEarly,
+        diverseCandidates.map(toSelectionCandidate),
+        representativeCount,
+      );
+      if (llmPicks && llmPicks.length > 0) {
+        const candidateByName = new Map(diverseCandidates.map((c) => [c.name, c]));
+        const llmSelected: ScoredRepo[] = [];
+        for (const pick of llmPicks) {
+          const repo = candidateByName.get(pick.name);
+          if (repo) {
+            llmSelected.push(repo);
+            selectionReasonByName.set(pick.name, pick.reason);
+          }
+        }
+        // LLM 이 N 보다 적게 채웠으면 다양성 후보로 보충.
+        if (llmSelected.length < representativeCount) {
+          const filler = diverseCandidates.filter(
+            (c) => !llmSelected.some((s) => s.id === c.id),
+          );
+          while (llmSelected.length < representativeCount && filler.length > 0) {
+            llmSelected.push(filler.shift()!);
+          }
+        }
+        candidates = llmSelected.slice(0, representativeCount);
+      } else {
+        candidates = diverseCandidates.slice(0, representativeCount);
+        warnings.push("LLM 대표 repo 리랭킹에 실패해 규칙 기반 선정 결과를 사용합니다.");
+      }
+    } catch (error) {
+      console.error("[analyze] repo rerank failed", error);
+      candidates = diverseCandidates.slice(0, representativeCount);
+      warnings.push("LLM 대표 repo 리랭킹 중 오류가 발생해 규칙 기반 선정 결과를 사용합니다.");
+    }
+  } else {
+    candidates = diverseCandidates.slice(0, representativeCount);
+  }
 
   // === 2차 deep collection (대표 repo에 한해 병렬 수집) ===
   const deepResults = await Promise.all(
@@ -314,9 +427,14 @@ export async function runAnalyze(
   for (const { id, data } of deepResults) deepMap.set(id, data);
 
   // === 분석된 repo 객체 만들기 ===
-  let selectedRepos: AnalyzedRepo[] = candidates.map((repo) =>
-    buildAnalyzedRepo(repo, deepMap.get(repo.id) ?? null),
-  );
+  let selectedRepos: AnalyzedRepo[] = candidates.map((repo) => {
+    const analyzed = buildAnalyzedRepo(repo, deepMap.get(repo.id) ?? null);
+    const selectionReason = selectionReasonByName.get(repo.name);
+    if (selectionReason) {
+      analyzed.inferenceNotes = [`대표 선정 사유: ${selectionReason}`, ...analyzed.inferenceNotes];
+    }
+    return analyzed;
+  });
 
   // refine 후 score가 바뀌므로 한 번 더 정렬
   selectedRepos.sort((a, b) => b.score - a.score);
@@ -350,9 +468,11 @@ export async function runAnalyze(
     warnings.push("README와 commit 정보가 부족하여 일부 결과는 추정 기반입니다.");
   }
 
-  // === LLM 호출 (옵션) ===
+  // === LLM 요약 호출 (옵션) ===
+  // 대표 repo 선정 단계에서 이미 동일 config 를 가지고 리랭커를 호출했다.
+  // 여기서는 사용자 요약 / repo 요약을 만든다.
   let llmReport: AnalyzeResponse["llm"] = null;
-  const llmConfig = options.llmConfig ?? null;
+  const llmConfig = llmConfigEarly;
   const provider = detectLlmProviderFromConfig(llmConfig);
   let llmAvailable = options.useLlm && provider !== "none";
 

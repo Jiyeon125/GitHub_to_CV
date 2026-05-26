@@ -14,6 +14,7 @@ export type AnalyzeRequest = {
   representativeCount: number;
   useLlm: boolean;
   llmConfig: LlmConfig;
+  guestGithubToken: string | null;
 };
 
 type Props = {
@@ -25,6 +26,8 @@ type Props = {
   onUseLlmChange: (value: boolean) => void;
   llmConfig: LlmConfig;
   onLlmConfigChange: (value: LlmConfig) => void;
+  guestGithubToken: string;
+  onGuestGithubTokenChange: (value: string) => void;
   includePrivate: boolean;
   onIncludePrivateChange: (value: boolean) => void;
   loading: boolean;
@@ -40,6 +43,8 @@ export default function Sidebar({
   onUseLlmChange,
   llmConfig,
   onLlmConfigChange,
+  guestGithubToken,
+  onGuestGithubTokenChange,
   includePrivate,
   onIncludePrivateChange,
   loading,
@@ -47,6 +52,9 @@ export default function Sidebar({
 }: Props) {
   // API key 가시성 토글 (마우스로 잠깐 확인할 수 있게)
   const [showApiKey, setShowApiKey] = useState(false);
+  // 게스트 GitHub PAT 입력 섹션 펼침 여부
+  const [showGuestTokenPanel, setShowGuestTokenPanel] = useState(false);
+  const [showGuestToken, setShowGuestToken] = useState(false);
   const { theme, toggleTheme } = useTheme();
   const { data: session, status } = useSession();
   const isAuthed = status === "authenticated" && Boolean(session?.user?.login);
@@ -56,9 +64,11 @@ export default function Sidebar({
   const effectiveMode: "self" | "public" = isAuthed ? "self" : "public";
 
   // 대표 repo 개수 상한:
-  // - 미인증(게스트): GitHub API 60회/시간 한도가 있으므로 3으로 제한.
-  // - 인증: 5000회/시간이라 5까지 허용.
-  const representativeMax = isAuthed ? 5 : 3;
+  // - 로그인 상태: 본인 OAuth token 으로 5000회/시간 → 5 까지 허용.
+  // - 게스트(미로그인) + 본인 PAT 입력함: 인증된 호출이라 5000회/시간 → 5 까지.
+  // - 게스트 + 토큰 없음: 60회/시간 한도라 3 으로 제한.
+  const hasGuestToken = guestGithubToken.trim().length > 0;
+  const representativeMax = isAuthed || hasGuestToken ? 5 : 3;
 
   // 인증 상태가 바뀌어 상한보다 큰 값이 남아있으면 자동으로 줄여준다.
   useEffect(() => {
@@ -74,7 +84,7 @@ export default function Sidebar({
   }
 
   return (
-    <aside className="w-[240px] xl:w-[280px] h-full bg-sidebar border-r border-sidebar-border flex flex-col p-5 xl:p-6 shrink-0 no-print overflow-y-auto">
+    <aside className="w-[260px] xl:w-[300px] h-full bg-sidebar border-r border-sidebar-border flex flex-col p-5 xl:p-6 shrink-0 no-print overflow-y-auto no-scrollbar">
       <div className="mb-6">
         <div className="flex items-center justify-between mb-3">
           <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center">
@@ -138,6 +148,67 @@ export default function Sidebar({
           )}
         </div>
 
+        {/* 게스트 GitHub PAT 입력 (미로그인 상태 전용) */}
+        {!isAuthed && (
+          <div className="rounded-lg border border-border bg-card p-2.5 flex flex-col gap-2">
+            <button
+              type="button"
+              onClick={() => setShowGuestTokenPanel((v) => !v)}
+              className="flex items-center justify-between text-left"
+              aria-expanded={showGuestTokenPanel}
+            >
+              <div>
+                <p className="text-xs font-medium text-foreground">
+                  내 GitHub 토큰으로 한도 확장 {hasGuestToken && <span className="text-primary">·on</span>}
+                </p>
+                <p className="text-[10px] text-muted-foreground mt-0.5">
+                  로그인 없이도 5000회/시간으로 늘려 분석합니다.
+                </p>
+              </div>
+              <span className="text-[11px] text-muted-foreground">{showGuestTokenPanel ? "닫기" : "열기"}</span>
+            </button>
+
+            {showGuestTokenPanel && (
+              <div className="flex flex-col gap-1.5 pt-1.5 border-t border-border">
+                <Label htmlFor="guest-gh-token" className="text-[11px] text-muted-foreground">
+                  GitHub Personal Access Token
+                </Label>
+                <div className="flex gap-1">
+                  <input
+                    id="guest-gh-token"
+                    type={showGuestToken ? "text" : "password"}
+                    value={guestGithubToken}
+                    onChange={(e) => onGuestGithubTokenChange(e.target.value)}
+                    placeholder="ghp_..."
+                    autoComplete="off"
+                    spellCheck={false}
+                    className="flex-1 bg-input-background border border-border rounded-md px-2 py-1.5 text-[11px] font-mono text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowGuestToken((v) => !v)}
+                    className="px-2 text-[10px] border border-border rounded-md text-muted-foreground hover:bg-muted transition-colors"
+                  >
+                    {showGuestToken ? "숨김" : "보기"}
+                  </button>
+                </div>
+                <p className="text-[10px] text-muted-foreground leading-relaxed">
+                  classic PAT 의 <code className="font-mono">public_repo</code> 권한이면 충분합니다.
+                  토큰은 서버 호출에만 사용되며 저장되지 않습니다 (새로고침 시 사라짐).
+                </p>
+                <a
+                  href="https://github.com/settings/tokens/new?scopes=public_repo&description=github-to-cv"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-[10px] text-primary hover:underline"
+                >
+                  → GitHub 에서 토큰 발급하기
+                </a>
+              </div>
+            )}
+          </div>
+        )}
+
         <div>
           <Label htmlFor="username" className="text-sm text-muted-foreground mb-2 block">
             GitHub username
@@ -200,10 +271,15 @@ export default function Sidebar({
                 ? `분석은 본인 전체 공개 저장소 대상, 상위 ${representativeCount}개만 카드로 표시합니다`
                 : `분석은 전체 공개 저장소 대상, 상위 ${representativeCount}개만 카드로 표시합니다`}
           </p>
-          {!isAuthed && (
+          {!isAuthed && !hasGuestToken && (
             <p className="text-[10px] text-muted-foreground mt-1 leading-relaxed">
               미로그인 상태는 GitHub API 호출 한도(60회/시간) 때문에 대표 repo 최대 3개로 제한됩니다.
-              로그인하면 최대 5개까지 분석할 수 있습니다.
+              로그인하거나 위에서 본인 토큰을 입력하면 최대 5개까지 분석할 수 있습니다.
+            </p>
+          )}
+          {!isAuthed && hasGuestToken && (
+            <p className="text-[10px] text-primary/80 mt-1 leading-relaxed">
+              입력한 토큰으로 인증된 호출(5000회/시간)을 사용합니다. 대표 repo 최대 5개까지 분석할 수 있습니다.
             </p>
           )}
         </div>

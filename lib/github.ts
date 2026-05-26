@@ -106,10 +106,10 @@ async function fetchGitHub<T>(url: string, auth?: GitHubAuth): Promise<T> {
       );
     }
     if (response.status === 401) {
-      // 여기까지 왔다면 사용자 OAuth token 자체가 만료/무효.
+      // 여기까지 왔다면 호출 측이 전달한 토큰(사용자 OAuth 또는 게스트 PAT) 자체가 만료/무효.
       throw new GitHubApiError(
         401,
-        "GitHub 로그인 세션이 만료되었습니다. 로그아웃 후 다시 로그인해 주세요.",
+        "GitHub 인증에 실패했습니다. 입력한 토큰을 확인하거나 다시 로그인해 주세요.",
         `GitHub 401: ${url}`,
       );
     }

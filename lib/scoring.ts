@@ -37,6 +37,10 @@ export type ScoreBreakdown = {
   activityWeighted: number;
   structureWeighted: number;
   forkPenalty: number;
+  // 신호 보강 필드 (포트폴리오 신호 강화 / 노이즈 repo 페널티)
+  topicsBonus: number; // repo.topics 가 비어 있지 않으면 가산점 (관리 의지 신호)
+  tutorialPenalty: number; // 이름/description 이 학습용 패턴이면 감점
+  sizePenalty: number; // 사실상 빈 repo (size 매우 작음) 감점
 };
 
 export type ScoredRepo = GitHubRepo & {
@@ -89,14 +93,65 @@ function activityFactor(repo: GitHubRepo): number {
   return clamp(stars * 0.7 + forks * 0.3, 0, 1);
 }
 
+// 학습/연습 repo 로 추정되는 이름·description 패턴.
+// 단어 경계로만 매칭해 의도치 않은 prefix 매칭(예: "studio" → "study")을 피한다.
+const TUTORIAL_PATTERNS = [
+  /\btutorials?\b/i,
+  /\bpractice\b/i,
+  /\bstudy\b/i,
+  /\bstudies\b/i,
+  /\bboilerplate\b/i,
+  /\btemplate\b/i,
+  /\btodo[-_]?app\b/i,
+  /\bsample\b/i,
+  /\bsamples\b/i,
+  /\bhello[-_]?world\b/i,
+  /\blearn(ing)?\b/i,
+  /\bexercises?\b/i,
+  /\bplayground\b/i,
+  /\bsandbox\b/i,
+  /\bclone\b/i, // "instagram-clone" 등 카피캣 학습 repo
+];
+
+function looksLikeTutorial(repo: GitHubRepo): boolean {
+  const name = repo.name ?? "";
+  const description = repo.description ?? "";
+  return TUTORIAL_PATTERNS.some((rx) => rx.test(name) || rx.test(description));
+}
+
+// 사실상 빈 repo (size 가 매우 작음) 감점.
+// GitHub repo size 단위는 KB. README + 설정 몇 개 있는 정상 프로젝트는 보통 100KB+ 이다.
+function computeSizePenalty(repo: GitHubRepo): number {
+  const size = typeof repo.size === "number" ? repo.size : -1;
+  if (size < 0) return 0; // 정보 없음 → 패널티 X
+  if (size < 10) return -20; // 거의 빈 repo
+  if (size < 100) return -10; // 스캐폴드 수준
+  return 0;
+}
+
 // shallow 단계 기본 점수 (README/구조 0으로 둠)
 export function computeShallowScore(repo: GitHubRepo): { score: number; breakdown: ScoreBreakdown } {
   const { legacyBreakdown } = computeRepoScore(repo);
 
   const recencyWeighted = Math.round(recencyFactor(repo.updated_at) * 25);
-  const descriptionWeighted = repo.description && repo.description.trim().length > 0 ? 15 : 0;
+  const hasDescription = !!repo.description && repo.description.trim().length > 0;
+  const descriptionWeighted = hasDescription ? 15 : 0;
   const activityWeighted = Math.round(activityFactor(repo) * 15);
-  const forkPenalty = repo.fork ? -10 : 0;
+
+  // fork 차등화:
+  // - fork 면서 description 도 비어 있으면 단순 복제로 가정 → -10
+  // - fork 지만 description 이 적혀 있으면 의도적 활용/기여 가능성 → -5
+  const forkPenalty = repo.fork ? (hasDescription ? -5 : -10) : 0;
+
+  // topics 보너스: 관리 의지 / 분류 신호
+  const topicsBonus =
+    Array.isArray(repo.topics) && repo.topics.length > 0 ? 5 : 0;
+
+  // 튜토리얼/학습용 repo 감점 (이름·설명 패턴)
+  const tutorialPenalty = looksLikeTutorial(repo) ? -15 : 0;
+
+  // 빈 repo 감점
+  const sizePenalty = computeSizePenalty(repo);
 
   const breakdown: ScoreBreakdown = {
     ...legacyBreakdown,
@@ -106,10 +161,19 @@ export function computeShallowScore(repo: GitHubRepo): { score: number; breakdow
     activityWeighted,
     structureWeighted: 0,
     forkPenalty,
+    topicsBonus,
+    tutorialPenalty,
+    sizePenalty,
   };
 
   const score =
-    recencyWeighted + descriptionWeighted + activityWeighted + forkPenalty;
+    recencyWeighted +
+    descriptionWeighted +
+    activityWeighted +
+    forkPenalty +
+    topicsBonus +
+    tutorialPenalty +
+    sizePenalty;
 
   return { score: clamp(score, 0, 100), breakdown };
 }
@@ -136,7 +200,10 @@ export function refineScoreWithDeepData(
       breakdown.readmeWeighted +
       breakdown.activityWeighted +
       breakdown.structureWeighted +
-      breakdown.forkPenalty,
+      breakdown.forkPenalty +
+      breakdown.topicsBonus +
+      breakdown.tutorialPenalty +
+      breakdown.sizePenalty,
     0,
     100,
   );

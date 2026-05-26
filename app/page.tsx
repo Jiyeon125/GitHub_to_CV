@@ -40,8 +40,8 @@ function getErrorHint(message: string): string {
   if (/네트워크|접속/.test(message)) {
     return "네트워크 연결 상태를 확인한 뒤 다시 시도하십시오.";
   }
-  if (/세션이 만료/.test(message)) {
-    return "사이드바에서 로그아웃 후 다시 GitHub 로그인을 시도하십시오.";
+  if (/세션이 만료|GitHub 인증에 실패/.test(message)) {
+    return "사이드바에서 입력한 GitHub 토큰을 확인하거나, 로그아웃 후 다시 로그인해 주세요.";
   }
   if (/인증/.test(message)) {
     return "로그인 상태를 확인한 뒤 다시 시도하십시오.";
@@ -58,6 +58,9 @@ export default function Home() {
   const [representativeCount, setRepresentativeCount] = useState(3);
   const [useLlm, setUseLlm] = useState(false);
   const [llmConfig, setLlmConfig] = useState<LlmConfig>(DEFAULT_LLM_CONFIG);
+  // 미로그인 상태에서 사용자가 직접 입력하는 GitHub PAT.
+  // 메모리에만 보관 (localStorage 저장 X). 새로고침 시 자동 소실.
+  const [guestGithubToken, setGuestGithubToken] = useState("");
   const [includePrivate, setIncludePrivate] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -65,6 +68,8 @@ export default function Home() {
 
   useEffect(() => {
     if (!isAuthed) setIncludePrivate(false);
+    // 로그인하면 게스트 토큰은 자동으로 비운다 (본인 OAuth token 으로 충분 + 혼선 방지).
+    if (isAuthed) setGuestGithubToken("");
   }, [isAuthed]);
 
   // 로그인 시 본인 계정 전용(self) / 미로그인 시 공개 분석 모드.
@@ -87,6 +92,11 @@ export default function Home() {
           llmConfig: useLlm ? llmConfig : null,
           mode: effectiveMode,
           includePrivate: effectiveMode === "self" ? includePrivate : false,
+          // 게스트가 본인 토큰으로 호출 한도를 확장하길 원할 때만 전달.
+          guestGithubToken:
+            !isAuthed && guestGithubToken.trim().length > 0
+              ? guestGithubToken.trim()
+              : null,
         }),
       });
 
@@ -106,7 +116,7 @@ export default function Home() {
     } finally {
       setLoading(false);
     }
-  }, [username, representativeCount, useLlm, llmConfig, effectiveMode, includePrivate, sessionLogin]);
+  }, [username, representativeCount, useLlm, llmConfig, effectiveMode, includePrivate, sessionLogin, isAuthed, guestGithubToken]);
 
   return (
     <div className="app-shell flex h-screen bg-background text-foreground overflow-hidden">
@@ -119,6 +129,8 @@ export default function Home() {
         onUseLlmChange={setUseLlm}
         llmConfig={llmConfig}
         onLlmConfigChange={setLlmConfig}
+        guestGithubToken={guestGithubToken}
+        onGuestGithubTokenChange={setGuestGithubToken}
         includePrivate={includePrivate}
         onIncludePrivateChange={setIncludePrivate}
         loading={loading}

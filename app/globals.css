@@ -167,6 +167,17 @@
   }
 }
 
+/* 스크롤은 가능하되 스크롤바 자체는 보이지 않게 한다. */
+.no-scrollbar {
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* IE / Edge legacy */
+}
+.no-scrollbar::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none; /* Chromium / Safari */
+}
+
 @media print {
   @page {
     margin: 1.45cm;

@@ -12,6 +12,11 @@ import { buildAnalyzeCacheKey, getCached, setCached } from "@/lib/cache";
 import type { AnalyzeResponse, LlmConfig } from "@/lib/types";
 
 const GITHUB_USERNAME_REGEX = /^(?!-)(?!.*--)[A-Za-z0-9-]{1,39}(?<!-)$/;
+// 사용자가 입력하는 GitHub PAT 형식 정규식.
+// - classic: ghp_ + base62, 36자 내외
+// - fine-grained: github_pat_ + base62, 길이는 더 김
+// 너무 짧거나 이상한 값은 미리 거르고, 진짜 인증 실패는 GitHub 가 401 로 알려준다.
+const GITHUB_TOKEN_REGEX = /^(ghp_|github_pat_|gho_|ghu_|ghs_|ghr_)[A-Za-z0-9_]{20,250}$/;
 const RATE_LIMIT_WINDOW_MS = 60_000;
 const RATE_LIMIT_MAX_REQUESTS = 20;
 // 메모리 기반 rate limit (PoC와 동일). 만료된 키는 주기적으로 정리한다.
@@ -91,6 +96,17 @@ async function fingerprintApiKey(apiKey: string): Promise<string> {
     .join("");
 }
 
+// 게스트 PAT 입력값을 안전하게 파싱한다.
+// - 비어 있거나 형식이 맞지 않으면 null. (서버 자체 GITHUB_TOKEN 으로 fallback)
+// - 응답/캐시 키에는 raw 토큰을 절대 노출하지 않는다.
+function parseGuestGithubToken(input: unknown): string | null {
+  if (typeof input !== "string") return null;
+  const trimmed = input.trim();
+  if (!trimmed) return null;
+  if (!GITHUB_TOKEN_REGEX.test(trimmed)) return null;
+  return trimmed;
+}
+
 function getClientIp(request: NextRequest) {
   const forwardedFor = request.headers.get("x-forwarded-for");
   if (forwardedFor) {
@@ -165,6 +181,9 @@ export async function POST(request: NextRequest) {
     const representativeCount = Number(body?.representativeCount ?? 3);
     const includePrivateRequested = Boolean(body?.includePrivate);
     const llmConfig = useLlm ? parseLlmConfig(body?.llmConfig) : null;
+    // 게스트가 본인 PAT 으로 인증된 호출을 원하면 여기서 받는다.
+    // (로그인 상태에서는 무시 — sessionAccessToken 이 항상 우선)
+    const guestGithubToken = parseGuestGithubToken(body?.guestGithubToken);
 
     // NextAuth JWT 에서 access_token / login 추출.
     // 세션 유무를 먼저 확인해야 "로그인 상태에서 남의 계정 분석" 같은 케이스를 막을 수 있다.
@@ -199,10 +218,12 @@ export async function POST(request: NextRequest) {
     }
 
     // 대표 repo 개수 상한 안전망:
-    // - 미인증(public 모드): GitHub API 60회/시간 한도 보호. 최대 3 개로 강제.
-    // - 인증(self 모드): 최대 5.
+    // - self 모드: 본인 OAuth token → 최대 5.
+    // - public + 게스트 PAT 입력: 인증된 호출 → 최대 5.
+    // - public + 토큰 없음: 60회/시간 → 최대 3.
     // 클라이언트 UI 가 이미 같은 max 를 적용하지만, 직접 POST 호출로 우회되는 경우를 막는다.
-    const representativeCountMax = mode === "self" ? 5 : 3;
+    const hasGuestToken = mode === "public" && guestGithubToken !== null;
+    const representativeCountMax = mode === "self" || hasGuestToken ? 5 : 3;
     const clampedRepresentativeCount = Math.max(
       1,
       Math.min(representativeCountMax, Number.isFinite(representativeCount) ? representativeCount : 3),
@@ -210,25 +231,34 @@ export async function POST(request: NextRequest) {
 
     // 캐시 확인 (TTL 10분). 동일 입력에 한해 GitHub/LLM 비용을 절약한다.
     // - LLM 설정(provider/model)이 다르면 다른 캐시 슬롯을 쓰도록 tag 를 함께 사용.
+    // - 게스트 PAT 도 사용자별로 fingerprint 만 캐시 키에 포함시켜 격리한다.
     const llmTag = await llmCacheTag(llmConfig);
+    const guestTokenTag = hasGuestToken
+      ? `:gt=${await fingerprintApiKey(guestGithubToken!)}`
+      : "";
     const cacheKey = `${buildAnalyzeCacheKey({
       username,
       representativeCount: clampedRepresentativeCount,
       useLlm,
       mode,
       includePrivate,
-    })}:${llmTag}`;
+    })}:${llmTag}${guestTokenTag}`;
     const cached = getCached<AnalyzeResponse>(cacheKey);
     if (cached) {
       return NextResponse.json({ ...cached, cached: true });
     }
+
+    // public 모드에서 게스트 PAT 가 있으면 그것을 GitHub 호출에 사용한다.
+    // self 모드에서는 본인 OAuth token 이 항상 우선.
+    const githubAccessToken =
+      mode === "self" ? sessionAccessToken : hasGuestToken ? guestGithubToken : null;
 
     const payload = await runAnalyze(
       { username, representativeCount: clampedRepresentativeCount, useLlm, llmConfig },
       {
         mode,
         includePrivate,
-        userAccessToken: mode === "self" ? sessionAccessToken : null,
+        userAccessToken: githubAccessToken,
       },
     );
     setCached(cacheKey, payload);
