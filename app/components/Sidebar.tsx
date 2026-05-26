@@ -67,7 +67,8 @@ export default function Sidebar({
   // - 로그인 상태: 본인 OAuth token 으로 5000회/시간 → 5 까지 허용.
   // - 게스트(미로그인) + 본인 PAT 입력함: 인증된 호출이라 5000회/시간 → 5 까지.
   // - 게스트 + 토큰 없음: 60회/시간 한도라 3 으로 제한.
-  const hasGuestToken = guestGithubToken.trim().length > 0;
+  // (HMR 부분 갱신/stale 번들 케이스에 대비해 ?? "" 로 방어한다.)
+  const hasGuestToken = (guestGithubToken ?? "").trim().length > 0;
   const representativeMax = isAuthed || hasGuestToken ? 5 : 3;
 
   // 인증 상태가 바뀌어 상한보다 큰 값이 남아있으면 자동으로 줄여준다.
@@ -177,7 +178,7 @@ export default function Sidebar({
                   <input
                     id="guest-gh-token"
                     type={showGuestToken ? "text" : "password"}
-                    value={guestGithubToken}
+                    value={guestGithubToken ?? ""}
                     onChange={(e) => onGuestGithubTokenChange(e.target.value)}
                     placeholder="ghp_..."
                     autoComplete="off"
