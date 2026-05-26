@@ -159,7 +159,7 @@ MINDLOGIC_API_KEY=
 | --- | --- |
 | `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` | GitHub OAuth App 의 Client ID / Secret. 로그인 기능을 사용하려면 필수. |
 | `NEXTAUTH_SECRET` | NextAuth JWT 서명/암호화에 사용할 임의 문자열. `openssl rand -base64 32` 로 생성. |
-| `NEXTAUTH_URL` | 배포 URL. 개발 시 `http://localhost:3000`, 배포 시 `https://jiyeon125-githubtocv.vercel.app`. |
+| `NEXTAUTH_URL` | 배포 URL. 개발 시 `http://localhost:3000`, 배포 시 `https://github-to-cvjiyeon125.vercel.app`. |
 | `GITHUB_TOKEN` | (선택) 비로그인 게스트 모드에서 GitHub API rate limit 완화용 PAT. 로그인 사용자에게는 영향 없음. |
 | `MINDLOGIC_API_KEY` | 숙명여대 API Gateway 키. 이 키가 있으면 LLM 요약 활성화. |
 | `MINDLOGIC_BASE_URL` | (선택) 게이트웨이 base URL. 기본 `https://factchat-cloud.mindlogic.ai/v1/gateway`. |
@@ -173,10 +173,10 @@ MINDLOGIC_API_KEY=
 1. https://github.com/settings/developers → **OAuth Apps** → **New OAuth App**
 2. Homepage URL:
    - 로컬: `http://localhost:3000`
-   - 배포: `https://jiyeon125-githubtocv.vercel.app`
+   - 배포: `https://github-to-cvjiyeon125.vercel.app`
 3. Authorization callback URL:
    - 로컬: `http://localhost:3000/api/auth/callback/github`
-   - 배포: `https://jiyeon125-githubtocv.vercel.app/api/auth/callback/github`
+   - 배포: `https://github-to-cvjiyeon125.vercel.app/api/auth/callback/github`
 4. **Register application** → 다음 화면에서 **Generate a new client secret** 클릭
 5. 발급된 `Client ID` 와 `Client Secret` 을 `.env.local` 에 입력
 6. `NEXTAUTH_SECRET` 도 생성해 함께 저장
@@ -185,7 +185,7 @@ OAuth 동의 화면에서 사용자는 `read:user` (프로필) + `repo` (private
 
 ### Vercel 배포 체크리스트
 
-Vercel 프로젝트의 Environment Variables에는 최소한 `NEXTAUTH_SECRET` 을 등록합니다. GitHub 로그인/private repo 분석을 쓰려면 `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `NEXTAUTH_URL=https://jiyeon125-githubtocv.vercel.app` 도 함께 등록하고, GitHub OAuth App의 callback URL에도 같은 배포 도메인을 추가해야 합니다. 공개 저장소 분석만 사용할 때는 OAuth 변수가 없어도 동작하며, `GITHUB_TOKEN` 은 rate limit 완화가 필요할 때만 추가합니다.
+Vercel 프로젝트의 Environment Variables에는 최소한 `NEXTAUTH_SECRET` 을 등록합니다. GitHub 로그인/private repo 분석을 쓰려면 `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `NEXTAUTH_URL=https://github-to-cvjiyeon125.vercel.app` 도 함께 등록하고, GitHub OAuth App의 callback URL에도 같은 배포 도메인을 추가해야 합니다. 공개 저장소 분석만 사용할 때는 OAuth 변수가 없어도 동작하며, `GITHUB_TOKEN` 은 rate limit 완화가 필요할 때만 추가합니다.
 
 **API 키 보안 권장사항** ([Mindlogic 가이드](https://docs.mindlogic.ai/docs/sookmyung/gateway/getting-started/authentication#보안) 기준):
 
