@@ -40,6 +40,9 @@ function getErrorHint(message: string): string {
   if (/네트워크|접속/.test(message)) {
     return "네트워크 연결 상태를 확인한 뒤 다시 시도하십시오.";
   }
+  if (/세션이 만료/.test(message)) {
+    return "사이드바에서 로그아웃 후 다시 GitHub 로그인을 시도하십시오.";
+  }
   if (/인증/.test(message)) {
     return "로그인 상태를 확인한 뒤 다시 시도하십시오.";
   }
@@ -55,22 +58,18 @@ export default function Home() {
   const [representativeCount, setRepresentativeCount] = useState(3);
   const [useLlm, setUseLlm] = useState(false);
   const [llmConfig, setLlmConfig] = useState<LlmConfig>(DEFAULT_LLM_CONFIG);
-  const [mode, setMode] = useState<"self" | "public">("public");
   const [includePrivate, setIncludePrivate] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<AnalyzeResponse | null>(null);
 
   useEffect(() => {
-    if (!isAuthed) {
-      setMode("public");
-      setIncludePrivate(false);
-      return;
-    }
-    setMode((prev) => (prev === "public" ? "self" : prev));
+    if (!isAuthed) setIncludePrivate(false);
   }, [isAuthed]);
 
-  const effectiveMode: "self" | "public" = isAuthed ? mode : "public";
+  // 로그인 시 본인 계정 전용(self) / 미로그인 시 공개 분석 모드.
+  // 다른 사용자를 분석하려면 로그아웃 필요.
+  const effectiveMode: "self" | "public" = isAuthed ? "self" : "public";
 
   const runAnalyze = useCallback(async () => {
     setLoading(true);
@@ -120,8 +119,6 @@ export default function Home() {
         onUseLlmChange={setUseLlm}
         llmConfig={llmConfig}
         onLlmConfigChange={setLlmConfig}
-        mode={effectiveMode}
-        onModeChange={setMode}
         includePrivate={includePrivate}
         onIncludePrivateChange={setIncludePrivate}
         loading={loading}

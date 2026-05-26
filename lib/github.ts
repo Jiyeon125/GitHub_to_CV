@@ -32,11 +32,31 @@ export type GitHubAuth = {
   userAccessToken?: string | null;
 };
 
+// 서버측 GITHUB_TOKEN 이 401 을 한 번 받으면, 이 프로세스 동안은 재시도하지 않고 미인증으로 사용한다.
+// (만료된 PAT 가 .env 에 남아 있어도 미로그인 게스트 분석이 깨지지 않도록 한다.)
+let serverTokenDisabled = false;
+
+function pickServerToken(): string | null {
+  if (serverTokenDisabled) return null;
+  return process.env.GITHUB_TOKEN || null;
+}
+
 function buildHeaders(auth?: GitHubAuth): HeadersInit {
-  const token = auth?.userAccessToken || process.env.GITHUB_TOKEN;
+  const token = auth?.userAccessToken || pickServerToken();
   return token
     ? { ...BASE_HEADERS, Authorization: `Bearer ${token}` }
     : BASE_HEADERS;
+}
+
+// 401 응답이고, 이번 호출이 "서버 GITHUB_TOKEN" 으로 갔던 경우에만 true.
+// 사용자 OAuth access token 의 401 은 진짜 인증 문제이므로 fallback 하지 않는다.
+function shouldRetryWithoutServerToken(
+  status: number,
+  auth?: GitHubAuth,
+): boolean {
+  if (status !== 401) return false;
+  if (auth?.userAccessToken) return false;
+  return Boolean(process.env.GITHUB_TOKEN) && !serverTokenDisabled;
 }
 
 async function fetchGitHub<T>(url: string, auth?: GitHubAuth): Promise<T> {
@@ -54,6 +74,26 @@ async function fetchGitHub<T>(url: string, auth?: GitHubAuth): Promise<T> {
     );
   }
 
+  // 서버 GITHUB_TOKEN 이 만료된 경우 한 번 비우고 재시도.
+  if (shouldRetryWithoutServerToken(response.status, auth)) {
+    console.warn(
+      "[github] Server GITHUB_TOKEN returned 401; disabling it for this process and retrying unauthenticated.",
+    );
+    serverTokenDisabled = true;
+    try {
+      response = await fetch(url, {
+        headers: buildHeaders(auth),
+        next: { revalidate: 0 },
+      });
+    } catch (error) {
+      throw new GitHubApiError(
+        503,
+        "GitHub API에 접속하지 못했습니다. 네트워크 상태를 확인하십시오.",
+        `GitHub fetch threw (retry): ${url} / ${String(error)}`,
+      );
+    }
+  }
+
   if (!response.ok) {
     if (response.status === 404) {
       throw new GitHubApiError(404, "GitHub 사용자를 찾을 수 없습니다.", `GitHub 404: ${url}`);
@@ -66,9 +106,10 @@ async function fetchGitHub<T>(url: string, auth?: GitHubAuth): Promise<T> {
       );
     }
     if (response.status === 401) {
+      // 여기까지 왔다면 사용자 OAuth token 자체가 만료/무효.
       throw new GitHubApiError(
         401,
-        "GitHub API 인증에 실패했습니다. GITHUB_TOKEN 값을 확인하십시오.",
+        "GitHub 로그인 세션이 만료되었습니다. 로그아웃 후 다시 로그인해 주세요.",
         `GitHub 401: ${url}`,
       );
     }
@@ -90,14 +131,39 @@ async function fetchGitHub<T>(url: string, auth?: GitHubAuth): Promise<T> {
   }
 }
 
-// 404/실패 시 null 을 반환하는 헬퍼 (README, tree 등은 없을 수 있다)
-async function fetchGitHubOptional<T>(url: string, auth?: GitHubAuth): Promise<T | null> {
+// 404/실패 시 null 을 반환하는 헬퍼 (README, tree 등은 없을 수 있다).
+// 만료된 서버 토큰으로 401 이 떨어진 경우엔 한 번 미인증으로 재시도해서, 게스트 분석에서도
+// optional 데이터(README/tree/언어 분포 등)가 모두 누락되지 않도록 한다.
+async function fetchOptionalRaw(
+  url: string,
+  auth?: GitHubAuth,
+): Promise<Response | null> {
   try {
-    const response = await fetch(url, {
+    let response = await fetch(url, {
       headers: buildHeaders(auth),
       next: { revalidate: 0 },
     });
+    if (shouldRetryWithoutServerToken(response.status, auth)) {
+      console.warn(
+        "[github] Server GITHUB_TOKEN returned 401 (optional); retrying unauthenticated.",
+      );
+      serverTokenDisabled = true;
+      response = await fetch(url, {
+        headers: buildHeaders(auth),
+        next: { revalidate: 0 },
+      });
+    }
     if (!response.ok) return null;
+    return response;
+  } catch {
+    return null;
+  }
+}
+
+async function fetchGitHubOptional<T>(url: string, auth?: GitHubAuth): Promise<T | null> {
+  const response = await fetchOptionalRaw(url, auth);
+  if (!response) return null;
+  try {
     return (await response.json()) as T;
   } catch {
     return null;
@@ -105,12 +171,9 @@ async function fetchGitHubOptional<T>(url: string, auth?: GitHubAuth): Promise<T
 }
 
 async function fetchTextOptional(url: string, auth?: GitHubAuth): Promise<string | null> {
+  const response = await fetchOptionalRaw(url, auth);
+  if (!response) return null;
   try {
-    const response = await fetch(url, {
-      headers: buildHeaders(auth),
-      next: { revalidate: 0 },
-    });
-    if (!response.ok) return null;
     return await response.text();
   } catch {
     return null;
@@ -226,13 +289,17 @@ export async function fetchDeepRepoData(
 ): Promise<DeepRepoData> {
   const branch = defaultBranch || "main";
 
-  const [readmeText, rootTree, languages, commits, configFiles] = await Promise.all([
+  // 호출량을 줄이기 위해 readme / rootTree / languages / commits 를 먼저 병렬로 받고,
+  // configFiles 는 rootTree 결과 기준으로 "실제 루트에 존재하는 파일만" 호출한다.
+  // (미인증 60회/시간 한도에서도 더 많은 repo 분석을 가능하게 한다.)
+  const [readmeText, rootTree, languages, commits] = await Promise.all([
     fetchReadmeText(owner, repo, auth),
     fetchRootTree(owner, repo, branch, auth),
     fetchLanguages(owner, repo, auth),
     fetchRecentCommits(owner, repo, 10, auth),
-    fetchConfigFiles(owner, repo, branch, auth),
   ]);
+
+  const configFiles = await fetchConfigFiles(owner, repo, branch, rootTree, auth);
 
   return { readmeText, rootTree, languages, commits, configFiles };
 }
@@ -335,12 +402,23 @@ async function fetchConfigFiles(
   owner: string,
   repo: string,
   branch: string,
+  rootTree: TreeEntry[],
   auth?: GitHubAuth,
 ): Promise<Record<string, string | null>> {
+  // rootTree 에 등장한 (= 루트에 실제로 존재하는) config 파일만 contents API 로 가져온다.
+  // 모든 CONFIG_FILES 를 무조건 호출하던 기존 방식 대비 호출 수가 7 → 평균 1~3 으로 감소.
   // raw.githubusercontent.com 은 private repo 인증이 까다로워 contents API 로 통일.
   // 응답에 base64 content 가 들어오면 디코딩, 없으면 download_url 우회.
+  const rootFileSet = new Set(
+    rootTree.filter((entry) => entry.type === "blob").map((entry) => entry.path),
+  );
+
   const entries = await Promise.all(
     CONFIG_FILES.map(async (file) => {
+      if (!rootFileSet.has(file)) {
+        return [file, null] as const;
+      }
+
       const data = await fetchGitHubOptional<{
         content?: string;
         encoding?: string;

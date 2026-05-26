@@ -163,28 +163,26 @@ export async function POST(request: NextRequest) {
     const rawUsername = String(body?.username ?? "").trim();
     const useLlm = Boolean(body?.useLlm);
     const representativeCount = Number(body?.representativeCount ?? 3);
-    const requestedMode = body?.mode === "self" ? "self" : "public";
     const includePrivateRequested = Boolean(body?.includePrivate);
     const llmConfig = useLlm ? parseLlmConfig(body?.llmConfig) : null;
 
     // NextAuth JWT 에서 access_token / login 추출.
-    // 배포 환경에서 OAuth 설정이 빠져도 공개 분석 모드는 계속 사용할 수 있게 한다.
-    const { sessionLogin, sessionAccessToken } =
-      requestedMode === "self"
-        ? await readSessionFromRequest(request)
-        : { sessionLogin: null, sessionAccessToken: null };
+    // 세션 유무를 먼저 확인해야 "로그인 상태에서 남의 계정 분석" 같은 케이스를 막을 수 있다.
+    // 세션 읽기에 실패해도(예: NEXTAUTH_SECRET 미설정) 미로그인 게스트 분석은 계속 가능하다.
+    const { sessionLogin, sessionAccessToken } = await readSessionFromRequest(request);
+    const isAuthed = Boolean(sessionAccessToken && sessionLogin);
 
     // === 모드 결정 ===
-    // 1) client 가 self 요청 + 세션 있음 + (username 미지정 or 본인 username) → self
-    // 2) 그 외에는 public 모드. private 옵션은 무시.
+    // - 로그인 상태: 항상 self (본인 계정 전용). 클라이언트가 보낸 username 은 무시한다.
+    //   다른 사용자 분석은 정책상 차단 (로그아웃 후 게스트 모드 사용).
+    // - 미로그인 상태: 항상 public + username 필수.
     let mode: "self" | "public";
     let username = rawUsername;
     let includePrivate = false;
 
-    if (requestedMode === "self" && sessionAccessToken && sessionLogin) {
+    if (isAuthed) {
       mode = "self";
-      // self 모드는 항상 본인 계정으로 강제.
-      username = sessionLogin;
+      username = sessionLogin!;
       includePrivate = includePrivateRequested;
     } else {
       mode = "public";
@@ -200,12 +198,22 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // 대표 repo 개수 상한 안전망:
+    // - 미인증(public 모드): GitHub API 60회/시간 한도 보호. 최대 3 개로 강제.
+    // - 인증(self 모드): 최대 5.
+    // 클라이언트 UI 가 이미 같은 max 를 적용하지만, 직접 POST 호출로 우회되는 경우를 막는다.
+    const representativeCountMax = mode === "self" ? 5 : 3;
+    const clampedRepresentativeCount = Math.max(
+      1,
+      Math.min(representativeCountMax, Number.isFinite(representativeCount) ? representativeCount : 3),
+    );
+
     // 캐시 확인 (TTL 10분). 동일 입력에 한해 GitHub/LLM 비용을 절약한다.
     // - LLM 설정(provider/model)이 다르면 다른 캐시 슬롯을 쓰도록 tag 를 함께 사용.
     const llmTag = await llmCacheTag(llmConfig);
     const cacheKey = `${buildAnalyzeCacheKey({
       username,
-      representativeCount,
+      representativeCount: clampedRepresentativeCount,
       useLlm,
       mode,
       includePrivate,
@@ -216,7 +224,7 @@ export async function POST(request: NextRequest) {
     }
 
     const payload = await runAnalyze(
-      { username, representativeCount, useLlm, llmConfig },
+      { username, representativeCount: clampedRepresentativeCount, useLlm, llmConfig },
       {
         mode,
         includePrivate,

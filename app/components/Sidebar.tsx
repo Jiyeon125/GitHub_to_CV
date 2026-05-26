@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { GitBranch, Sparkles, Sun, Moon } from "lucide-react";
 import { useSession, signIn, signOut } from "next-auth/react";
 import { Label } from "./ui/label";
@@ -25,8 +25,6 @@ type Props = {
   onUseLlmChange: (value: boolean) => void;
   llmConfig: LlmConfig;
   onLlmConfigChange: (value: LlmConfig) => void;
-  mode: "self" | "public";
-  onModeChange: (value: "self" | "public") => void;
   includePrivate: boolean;
   onIncludePrivateChange: (value: boolean) => void;
   loading: boolean;
@@ -42,8 +40,6 @@ export default function Sidebar({
   onUseLlmChange,
   llmConfig,
   onLlmConfigChange,
-  mode,
-  onModeChange,
   includePrivate,
   onIncludePrivateChange,
   loading,
@@ -55,7 +51,21 @@ export default function Sidebar({
   const { data: session, status } = useSession();
   const isAuthed = status === "authenticated" && Boolean(session?.user?.login);
   const sessionLogin = session?.user?.login ?? "";
-  const effectiveMode: "self" | "public" = isAuthed ? mode : "public";
+  // 로그인 상태에서는 항상 본인 계정만 분석한다. (다른 사용자 조회 차단)
+  // 미로그인 상태에서는 공개 분석 모드.
+  const effectiveMode: "self" | "public" = isAuthed ? "self" : "public";
+
+  // 대표 repo 개수 상한:
+  // - 미인증(게스트): GitHub API 60회/시간 한도가 있으므로 3으로 제한.
+  // - 인증: 5000회/시간이라 5까지 허용.
+  const representativeMax = isAuthed ? 5 : 3;
+
+  // 인증 상태가 바뀌어 상한보다 큰 값이 남아있으면 자동으로 줄여준다.
+  useEffect(() => {
+    if (representativeCount > representativeMax) {
+      onRepresentativeCountChange(representativeMax);
+    }
+  }, [representativeCount, representativeMax, onRepresentativeCountChange]);
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -128,36 +138,6 @@ export default function Sidebar({
           )}
         </div>
 
-        {isAuthed && (
-          <div className="rounded-lg border border-border p-2 bg-card">
-            <Label className="text-xs text-muted-foreground mb-2 block">분석 대상</Label>
-            <div className="grid grid-cols-2 gap-1">
-              <button
-                type="button"
-                onClick={() => onModeChange("self")}
-                className={`px-2 py-1.5 text-xs rounded-md border transition-colors ${
-                  effectiveMode === "self"
-                    ? "border-primary/50 bg-primary/15 text-foreground"
-                    : "border-border text-muted-foreground hover:bg-muted"
-                }`}
-              >
-                내 저장소
-              </button>
-              <button
-                type="button"
-                onClick={() => onModeChange("public")}
-                className={`px-2 py-1.5 text-xs rounded-md border transition-colors ${
-                  effectiveMode === "public"
-                    ? "border-primary/50 bg-primary/15 text-foreground"
-                    : "border-border text-muted-foreground hover:bg-muted"
-                }`}
-              >
-                테스트(공개)
-              </button>
-            </div>
-          </div>
-        )}
-
         <div>
           <Label htmlFor="username" className="text-sm text-muted-foreground mb-2 block">
             GitHub username
@@ -171,11 +151,15 @@ export default function Sidebar({
             spellCheck={false}
             aria-label="GitHub username"
             disabled={effectiveMode === "self"}
-            className="w-full bg-input-background border border-border rounded-md px-3 py-2 text-sm font-mono text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all"
+            className="w-full bg-input-background border border-border rounded-md px-3 py-2 text-sm font-mono text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all disabled:opacity-70 disabled:cursor-not-allowed"
           />
-          {effectiveMode === "self" && (
+          {effectiveMode === "self" ? (
             <p className="mt-1 text-[11px] text-muted-foreground">
-              로그인된 본인 계정으로 고정됩니다.
+              로그인된 본인 계정으로 고정됩니다. 다른 사용자를 분석하려면 로그아웃하세요.
+            </p>
+          ) : (
+            <p className="mt-1 text-[11px] text-muted-foreground">
+              공개 저장소만 분석합니다. private 분석은 GitHub 로그인이 필요합니다.
             </p>
           )}
         </div>
@@ -205,7 +189,7 @@ export default function Sidebar({
             value={[representativeCount]}
             onValueChange={(value) => onRepresentativeCountChange(value[0])}
             min={1}
-            max={5}
+            max={representativeMax}
             step={1}
             className="w-full"
           />
@@ -216,6 +200,12 @@ export default function Sidebar({
                 ? `분석은 본인 전체 공개 저장소 대상, 상위 ${representativeCount}개만 카드로 표시합니다`
                 : `분석은 전체 공개 저장소 대상, 상위 ${representativeCount}개만 카드로 표시합니다`}
           </p>
+          {!isAuthed && (
+            <p className="text-[10px] text-muted-foreground mt-1 leading-relaxed">
+              미로그인 상태는 GitHub API 호출 한도(60회/시간) 때문에 대표 repo 최대 3개로 제한됩니다.
+              로그인하면 최대 5개까지 분석할 수 있습니다.
+            </p>
+          )}
         </div>
 
         <div className="flex items-center justify-between">
