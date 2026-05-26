@@ -161,12 +161,25 @@ MINDLOGIC_API_KEY=
 | `NEXTAUTH_SECRET` | NextAuth JWT 서명/암호화에 사용할 임의 문자열. `openssl rand -base64 32` 로 생성. |
 | `NEXTAUTH_URL` | 배포 URL. 개발 시 `http://localhost:3000`, 배포 시 `https://github-to-cvjiyeon125.vercel.app`. |
 | `GITHUB_TOKEN` | (선택) 비로그인 게스트 모드에서 GitHub API rate limit 완화용 PAT. 로그인 사용자에게는 영향 없음. |
-| `MINDLOGIC_API_KEY` | 숙명여대 API Gateway 키. 이 키가 있으면 LLM 요약 활성화. |
+| `MINDLOGIC_API_KEY` | 숙명여대 API Gateway 키. 이 키가 있으면 사이드바의 프리셋(GPT/Claude/Gemini)으로 LLM 요약 활성화. |
 | `MINDLOGIC_BASE_URL` | (선택) 게이트웨이 base URL. 기본 `https://factchat-cloud.mindlogic.ai/v1/gateway`. |
-| `MINDLOGIC_MODEL` | (선택) 게이트웨이가 지원하는 모델 ID. 기본 `claude-sonnet-4-6`. 예: `gpt-4o-mini`, `gemini-2.0-flash` 등. |
+| `MINDLOGIC_MODEL_GPT` / `MINDLOGIC_MODEL_CLAUDE` / `MINDLOGIC_MODEL_GEMINI` | (선택) 각 프리셋이 실제 호출할 모델 ID. 기본값은 `gpt-5.4`, `claude-sonnet-4-6`, `gemini-2.5-pro`. 권한 있는 ID 는 `GET /v1/gateway/models` 로 확인. |
+| `MINDLOGIC_MODEL` | (하위 호환·선택) 단일 모델 ID 만 쓰던 옛 환경 변수. 설정 시 "GPT" 프리셋이 이 값을 사용. |
 | `LLM_TEMPERATURE` | 기본 0. 호출마다 비슷한 결과를 받기 위한 샘플링 온도. 0~0.3 권장. |
 
-`MINDLOGIC_API_KEY` 가 없으면 사이드바의 "LLM 요약 생성" 을 켜도 자동으로 규칙 기반 결과만 표시되며, 응답 경고 박스에 안내가 노출됩니다.
+`MINDLOGIC_API_KEY` 가 없으면 사이드바의 "LLM 요약 생성" 을 켜도 자동으로 규칙 기반 결과만 표시되며, 응답 경고 박스에 안내가 노출됩니다. 단, 사용자가 사이드바의 "직접 입력 (Custom)" 옵션에 자신의 OpenAI 호환 API 키 / Base URL / 모델을 넣은 경우에는 서버 키 없이도 LLM 요약을 생성할 수 있습니다.
+
+### 사이드바에서 모델 선택하기
+
+사이드바의 **LLM 요약 생성** 토글을 켜면 모델 프리셋이 나타납니다.
+
+- **OpenAI GPT (gpt-5)** — 기본 추천. `temperature=0` + `seed` 반영이 가장 안정적이라 본 서비스의 JSON 강제 출력과 잘 맞습니다. (기본 모델 ID: `gpt-5.4`)
+- **Anthropic Claude Sonnet** — 한국어 문장의 자연스러움이 강점. (기본 모델 ID: `claude-sonnet-4-6`)
+- **Google Gemini 2.5 Pro** — 긴 컨텍스트와 속도 균형. 게이트웨이 호환을 위해 `seed` 파라미터는 자동으로 빼서 호출합니다.
+- **직접 입력 (Custom)** — 사용자가 자신의 OpenAI 호환 API 키 / Base URL / 모델 ID를 넣어 호출. 키는 서버 호출에만 사용되고 브라우저/서버에 저장되지 않으며 새로고침 시 사라집니다.
+
+> 경량 모델(mini / nano / flash)은 본 서비스의 JSON 출력 규약과 어휘 화이트리스트를 자주 어겨 의도적으로 프리셋에서 제외했습니다. 필요하면 "직접 입력"에서 사용할 수 있습니다.
+> 권한 있는 모델 목록은 `curl -H "Authorization: Bearer $MINDLOGIC_API_KEY" https://factchat-cloud.mindlogic.ai/v1/gateway/models` 로 확인할 수 있습니다.
 
 ### GitHub OAuth App 등록
 

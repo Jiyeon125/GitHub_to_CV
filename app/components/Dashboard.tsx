@@ -159,9 +159,13 @@ export default function Dashboard({ data }: Props) {
         <p className="text-xs text-muted-foreground">
           생성 시각: {new Date(data.generatedAt).toLocaleString("ko-KR")} · LLM:{" "}
           {data.llmEnabled
-            ? data.llmProvider === "gateway"
-              ? "Sookmyung API Gateway"
-              : data.llmProvider
+            ? `${
+                data.llmProvider === "gateway"
+                  ? "Sookmyung API Gateway"
+                  : data.llmProvider === "custom"
+                    ? "사용자 지정 API"
+                    : data.llmProvider
+              }${data.llmModel ? ` (${data.llmModel})` : ""}`
             : "사용 안 함"}
           {" "}· GitHub {scopeLabel} 기반 추정 결과
         </p>

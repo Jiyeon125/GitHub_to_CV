@@ -9,7 +9,7 @@ import { getToken } from "next-auth/jwt";
 import { runAnalyze } from "@/lib/analyze";
 import { GitHubApiError } from "@/lib/github";
 import { buildAnalyzeCacheKey, getCached, setCached } from "@/lib/cache";
-import type { AnalyzeResponse } from "@/lib/types";
+import type { AnalyzeResponse, LlmConfig } from "@/lib/types";
 
 const GITHUB_USERNAME_REGEX = /^(?!-)(?!.*--)[A-Za-z0-9-]{1,39}(?<!-)$/;
 const RATE_LIMIT_WINDOW_MS = 60_000;
@@ -29,6 +29,66 @@ class ApiError extends Error {
 
 function isValidGitHubUsername(username: string) {
   return GITHUB_USERNAME_REGEX.test(username);
+}
+
+// 사용자가 보낸 LLM 설정을 안전하게 파싱한다.
+// - 알 수 없는 choice 는 기본값으로 떨어뜨린다.
+// - apiKey / baseUrl / model 은 문자열 길이/타입만 가볍게 검사. (실제 검증은 호출 시 게이트웨이가 거절)
+// - 응답/로그/캐시 키에는 절대 raw apiKey 를 노출하지 않는다.
+const ALLOWED_LLM_CHOICES = new Set<LlmConfig["choice"]>([
+  "gateway-gpt",
+  "gateway-claude",
+  "gateway-gemini",
+  "custom",
+]);
+
+function parseLlmConfig(input: unknown): LlmConfig | null {
+  if (!input || typeof input !== "object") return null;
+  const obj = input as Record<string, unknown>;
+  const choiceRaw = obj.choice;
+  const choice =
+    typeof choiceRaw === "string" && ALLOWED_LLM_CHOICES.has(choiceRaw as LlmConfig["choice"])
+      ? (choiceRaw as LlmConfig["choice"])
+      : "gateway-gpt";
+
+  if (choice !== "custom") {
+    return { choice };
+  }
+
+  const apiKey = typeof obj.apiKey === "string" ? obj.apiKey.trim().slice(0, 512) : "";
+  const baseUrl = typeof obj.baseUrl === "string" ? obj.baseUrl.trim().slice(0, 512) : "";
+  const model = typeof obj.model === "string" ? obj.model.trim().slice(0, 128) : "";
+
+  return {
+    choice: "custom",
+    apiKey: apiKey || null,
+    baseUrl: baseUrl || null,
+    model: model || null,
+  };
+}
+
+// 캐시 키에 LLM 설정을 반영한다.
+// - 같은 게이트웨이 모델끼리는 캐시 공유. (서버 키 1개 = 안전 공유 가능)
+// - custom 키는 사용자별로 다르므로, apiKey 의 해시 prefix 만 사용해 사용자/캐시 격리.
+async function llmCacheTag(config: LlmConfig | null): Promise<string> {
+  if (!config) return "llm=default";
+  if (config.choice !== "custom") {
+    return `llm=${config.choice}`;
+  }
+  const fingerprint = await fingerprintApiKey(config.apiKey ?? "");
+  return `llm=custom:${(config.model ?? "").slice(0, 24)}:${fingerprint}`;
+}
+
+async function fingerprintApiKey(apiKey: string): Promise<string> {
+  if (!apiKey) return "anon";
+  // 캐시 격리 목적이라 충돌 위험만 낮으면 충분. SHA-256 의 앞 16자만 사용.
+  const data = new TextEncoder().encode(apiKey);
+  const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+  const bytes = Array.from(new Uint8Array(hashBuffer));
+  return bytes
+    .slice(0, 8)
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
 }
 
 function getClientIp(request: NextRequest) {
@@ -105,6 +165,7 @@ export async function POST(request: NextRequest) {
     const representativeCount = Number(body?.representativeCount ?? 3);
     const requestedMode = body?.mode === "self" ? "self" : "public";
     const includePrivateRequested = Boolean(body?.includePrivate);
+    const llmConfig = useLlm ? parseLlmConfig(body?.llmConfig) : null;
 
     // NextAuth JWT 에서 access_token / login 추출.
     // 배포 환경에서 OAuth 설정이 빠져도 공개 분석 모드는 계속 사용할 수 있게 한다.
@@ -140,20 +201,22 @@ export async function POST(request: NextRequest) {
     }
 
     // 캐시 확인 (TTL 10분). 동일 입력에 한해 GitHub/LLM 비용을 절약한다.
-    const cacheKey = buildAnalyzeCacheKey({
+    // - LLM 설정(provider/model)이 다르면 다른 캐시 슬롯을 쓰도록 tag 를 함께 사용.
+    const llmTag = await llmCacheTag(llmConfig);
+    const cacheKey = `${buildAnalyzeCacheKey({
       username,
       representativeCount,
       useLlm,
       mode,
       includePrivate,
-    });
+    })}:${llmTag}`;
     const cached = getCached<AnalyzeResponse>(cacheKey);
     if (cached) {
       return NextResponse.json({ ...cached, cached: true });
     }
 
     const payload = await runAnalyze(
-      { username, representativeCount, useLlm },
+      { username, representativeCount, useLlm, llmConfig },
       {
         mode,
         includePrivate,

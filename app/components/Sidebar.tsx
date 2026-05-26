@@ -1,17 +1,19 @@
 "use client";
 
-import { FormEvent } from "react";
+import { FormEvent, useState } from "react";
 import { GitBranch, Sparkles, Sun, Moon } from "lucide-react";
 import { useSession, signIn, signOut } from "next-auth/react";
 import { Label } from "./ui/label";
 import { Slider } from "./ui/slider";
 import { Switch } from "./ui/switch";
 import { useTheme } from "../providers";
+import { LLM_MODEL_PRESETS, type LlmConfig } from "@/lib/llm";
 
 export type AnalyzeRequest = {
   username: string;
   representativeCount: number;
   useLlm: boolean;
+  llmConfig: LlmConfig;
 };
 
 type Props = {
@@ -21,6 +23,8 @@ type Props = {
   onRepresentativeCountChange: (value: number) => void;
   useLlm: boolean;
   onUseLlmChange: (value: boolean) => void;
+  llmConfig: LlmConfig;
+  onLlmConfigChange: (value: LlmConfig) => void;
   mode: "self" | "public";
   onModeChange: (value: "self" | "public") => void;
   includePrivate: boolean;
@@ -36,6 +40,8 @@ export default function Sidebar({
   onRepresentativeCountChange,
   useLlm,
   onUseLlmChange,
+  llmConfig,
+  onLlmConfigChange,
   mode,
   onModeChange,
   includePrivate,
@@ -43,6 +49,8 @@ export default function Sidebar({
   loading,
   onSubmit,
 }: Props) {
+  // API key 가시성 토글 (마우스로 잠깐 확인할 수 있게)
+  const [showApiKey, setShowApiKey] = useState(false);
   const { theme, toggleTheme } = useTheme();
   const { data: session, status } = useSession();
   const isAuthed = status === "authenticated" && Boolean(session?.user?.login);
@@ -221,6 +229,136 @@ export default function Sidebar({
             onCheckedChange={onUseLlmChange}
           />
         </div>
+
+        {useLlm && (
+          <div className="rounded-lg border border-border bg-card p-2.5 flex flex-col gap-2.5">
+            <div>
+              <Label className="text-xs text-muted-foreground mb-1.5 block">
+                LLM 모델
+              </Label>
+              <div className="grid grid-cols-1 gap-1">
+                {LLM_MODEL_PRESETS.map((preset) => {
+                  const active = llmConfig.choice === preset.id;
+                  return (
+                    <button
+                      key={preset.id}
+                      type="button"
+                      onClick={() =>
+                        onLlmConfigChange({
+                          choice: preset.id,
+                          apiKey: null,
+                          baseUrl: null,
+                          model: null,
+                        })
+                      }
+                      className={`text-left px-2.5 py-1.5 rounded-md border text-xs transition-colors ${
+                        active
+                          ? "border-primary/50 bg-primary/15 text-foreground"
+                          : "border-border text-muted-foreground hover:bg-muted"
+                      }`}
+                    >
+                      <span className="block font-medium">{preset.label}</span>
+                      <span className="block text-[10px] text-muted-foreground mt-0.5">
+                        {preset.description}
+                      </span>
+                    </button>
+                  );
+                })}
+                <button
+                  type="button"
+                  onClick={() =>
+                    onLlmConfigChange({
+                      choice: "custom",
+                      apiKey: llmConfig.apiKey ?? "",
+                      baseUrl: llmConfig.baseUrl ?? "",
+                      model: llmConfig.model ?? "",
+                    })
+                  }
+                  className={`text-left px-2.5 py-1.5 rounded-md border text-xs transition-colors ${
+                    llmConfig.choice === "custom"
+                      ? "border-primary/50 bg-primary/15 text-foreground"
+                      : "border-border text-muted-foreground hover:bg-muted"
+                  }`}
+                >
+                  <span className="block font-medium">직접 입력 (Custom)</span>
+                  <span className="block text-[10px] text-muted-foreground mt-0.5">
+                    OpenAI 호환 API 키를 직접 사용
+                  </span>
+                </button>
+              </div>
+            </div>
+
+            {llmConfig.choice === "custom" && (
+              <div className="flex flex-col gap-2 pt-1 border-t border-border">
+                <div>
+                  <Label htmlFor="llm-key" className="text-[11px] text-muted-foreground mb-1 block">
+                    API Key
+                  </Label>
+                  <div className="flex gap-1">
+                    <input
+                      id="llm-key"
+                      type={showApiKey ? "text" : "password"}
+                      value={llmConfig.apiKey ?? ""}
+                      onChange={(e) =>
+                        onLlmConfigChange({ ...llmConfig, apiKey: e.target.value })
+                      }
+                      placeholder="sk-..."
+                      autoComplete="off"
+                      spellCheck={false}
+                      className="flex-1 bg-input-background border border-border rounded-md px-2 py-1.5 text-[11px] font-mono text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowApiKey((v) => !v)}
+                      className="px-2 text-[10px] border border-border rounded-md text-muted-foreground hover:bg-muted transition-colors"
+                    >
+                      {showApiKey ? "숨김" : "보기"}
+                    </button>
+                  </div>
+                  <p className="mt-1 text-[10px] text-muted-foreground leading-relaxed">
+                    키는 서버 호출에만 사용되며 저장되지 않습니다. 페이지를 새로고침하면 사라집니다.
+                  </p>
+                </div>
+
+                <div>
+                  <Label htmlFor="llm-base" className="text-[11px] text-muted-foreground mb-1 block">
+                    Base URL (선택)
+                  </Label>
+                  <input
+                    id="llm-base"
+                    type="text"
+                    value={llmConfig.baseUrl ?? ""}
+                    onChange={(e) =>
+                      onLlmConfigChange({ ...llmConfig, baseUrl: e.target.value })
+                    }
+                    placeholder="https://api.openai.com/v1"
+                    autoComplete="off"
+                    spellCheck={false}
+                    className="w-full bg-input-background border border-border rounded-md px-2 py-1.5 text-[11px] font-mono text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all"
+                  />
+                </div>
+
+                <div>
+                  <Label htmlFor="llm-model" className="text-[11px] text-muted-foreground mb-1 block">
+                    Model
+                  </Label>
+                  <input
+                    id="llm-model"
+                    type="text"
+                    value={llmConfig.model ?? ""}
+                    onChange={(e) =>
+                      onLlmConfigChange({ ...llmConfig, model: e.target.value })
+                    }
+                    placeholder="gpt-4o"
+                    autoComplete="off"
+                    spellCheck={false}
+                    className="w-full bg-input-background border border-border rounded-md px-2 py-1.5 text-[11px] font-mono text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all"
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         <button
           type="submit"

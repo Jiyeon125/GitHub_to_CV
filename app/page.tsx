@@ -7,7 +7,15 @@ import { useSession } from "next-auth/react";
 import Sidebar from "./components/Sidebar";
 import Dashboard from "./components/Dashboard";
 import LoadingProgress from "./components/LoadingProgress";
-import type { AnalyzeResponse } from "@/lib/types";
+import type { AnalyzeResponse, LlmConfig } from "@/lib/types";
+
+// LLM 설정 기본값: 가장 안정적인 GPT 프리셋
+const DEFAULT_LLM_CONFIG: LlmConfig = {
+  choice: "gateway-gpt",
+  apiKey: null,
+  baseUrl: null,
+  model: null,
+};
 
 const EXAMPLE_USERNAMES = ["torvalds", "gaearon", "yyx990803"];
 
@@ -46,6 +54,7 @@ export default function Home() {
   const [username, setUsername] = useState("");
   const [representativeCount, setRepresentativeCount] = useState(3);
   const [useLlm, setUseLlm] = useState(false);
+  const [llmConfig, setLlmConfig] = useState<LlmConfig>(DEFAULT_LLM_CONFIG);
   const [mode, setMode] = useState<"self" | "public">("public");
   const [includePrivate, setIncludePrivate] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -76,6 +85,7 @@ export default function Home() {
           username: effectiveMode === "self" ? sessionLogin : username,
           representativeCount,
           useLlm,
+          llmConfig: useLlm ? llmConfig : null,
           mode: effectiveMode,
           includePrivate: effectiveMode === "self" ? includePrivate : false,
         }),
@@ -97,7 +107,7 @@ export default function Home() {
     } finally {
       setLoading(false);
     }
-  }, [username, representativeCount, useLlm, effectiveMode, includePrivate, sessionLogin]);
+  }, [username, representativeCount, useLlm, llmConfig, effectiveMode, includePrivate, sessionLogin]);
 
   return (
     <div className="app-shell flex h-screen bg-background text-foreground overflow-hidden">
@@ -108,6 +118,8 @@ export default function Home() {
         onRepresentativeCountChange={setRepresentativeCount}
         useLlm={useLlm}
         onUseLlmChange={setUseLlm}
+        llmConfig={llmConfig}
+        onLlmConfigChange={setLlmConfig}
         mode={effectiveMode}
         onModeChange={setMode}
         includePrivate={includePrivate}

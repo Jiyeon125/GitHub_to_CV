@@ -3,8 +3,10 @@
 // 본 파일은 deep 분석 단계에서 다루는 확장 타입을 정의한다.
 
 import type { GitHubRepo, ScoredRepo } from "./scoring";
+import type { LlmConfig } from "./llm";
 
 export type { GitHubRepo, ScoredRepo };
+export type { LlmConfig };
 
 export type RepoCommit = {
   sha: string;
@@ -106,9 +108,12 @@ export type AnalyzeResponse = {
   warnings: string[];
   llm: LLMUserReport | null;
   llmEnabled: boolean;
-  // 현재 MVP에서는 숙명여대 API Gateway 단일 provider 만 지원한다.
-  // 추후 직접 OpenAI/Anthropic 호출이 필요해지면 union 을 확장한다.
-  llmProvider: "gateway" | "none";
+  // - "gateway" : 서버에 등록된 Mindlogic 게이트웨이 키로 호출
+  // - "custom"  : 사용자가 사이드바에서 직접 입력한 OpenAI 호환 키로 호출
+  // - "none"    : LLM 호출이 비활성화됨 (키 없음 또는 사용자가 옵션 끔)
+  llmProvider: "gateway" | "custom" | "none";
+  // 응답에 실제로 사용된 모델 ID (UI 라벨/디버깅용). 키 노출은 절대 하지 않는다.
+  llmModel?: string | null;
   summary: string; // PoC 호환용 텍스트 요약
   generatedAt: string; // ISO
   cached: boolean;
@@ -118,4 +123,6 @@ export type AnalyzeOptions = {
   username: string;
   representativeCount: number; // 1~5
   useLlm: boolean;
+  // LLM 호출 설정 (없으면 서버 기본 게이트웨이 사용)
+  llmConfig?: LlmConfig | null;
 };

@@ -31,9 +31,11 @@ import { buildTagCandidates } from "./tags";
 import {
   buildRepoReportInputs,
   buildUserReportInput,
-  detectLlmProvider,
+  detectLlmProviderFromConfig,
   generateRepoReports,
   generateUserReport,
+  LLM_MODEL_PRESETS,
+  type LlmConfig,
 } from "./llm";
 import type {
   AnalyzeOptions,
@@ -56,6 +58,20 @@ const MAX_REPRESENTATIVE = 5;
 function clampCount(value: number): number {
   if (Number.isNaN(value)) return MIN_REPRESENTATIVE;
   return Math.min(MAX_REPRESENTATIVE, Math.max(MIN_REPRESENTATIVE, Math.floor(value)));
+}
+
+// 응답에 노출할 모델 라벨. 키는 절대 포함하지 않는다.
+function resolveLlmModelLabel(config: LlmConfig | null | undefined): string | null {
+  if (!config) {
+    const preset = LLM_MODEL_PRESETS[0];
+    return preset ? preset.label : null;
+  }
+  if (config.choice === "custom") {
+    const model = (config.model ?? "").trim();
+    return model ? `Custom · ${model}` : "Custom";
+  }
+  const preset = LLM_MODEL_PRESETS.find((p) => p.id === config.choice);
+  return preset?.label ?? null;
 }
 
 // 비-fork & description 있는 repo 우선, 부족하면 fork 포함
@@ -254,7 +270,8 @@ export async function runAnalyze(
       warnings: [`분석 가능한 ${scopeLabelForUser}가 부족합니다.`],
       llm: null,
       llmEnabled: options.useLlm,
-      llmProvider: detectLlmProvider(),
+      llmProvider: detectLlmProviderFromConfig(options.llmConfig ?? null),
+      llmModel: resolveLlmModelLabel(options.llmConfig ?? null),
       summary: `${username} 사용자의 ${scopeLabelForUser}가 없어 분석을 진행할 수 없습니다.`,
       generatedAt: new Date().toISOString(),
       cached: false,
@@ -335,11 +352,16 @@ export async function runAnalyze(
 
   // === LLM 호출 (옵션) ===
   let llmReport: AnalyzeResponse["llm"] = null;
-  const provider = detectLlmProvider();
+  const llmConfig = options.llmConfig ?? null;
+  const provider = detectLlmProviderFromConfig(llmConfig);
   let llmAvailable = options.useLlm && provider !== "none";
 
   if (options.useLlm && provider === "none") {
-    warnings.push("LLM API 키가 없어 규칙 기반 분석 결과만 표시합니다.");
+    warnings.push(
+      llmConfig?.choice === "custom"
+        ? "직접 입력한 LLM API 키가 비어 있어 규칙 기반 분석 결과만 표시합니다."
+        : "LLM API 키가 없어 규칙 기반 분석 결과만 표시합니다.",
+    );
   }
 
   if (llmAvailable) {
@@ -362,8 +384,8 @@ export async function runAnalyze(
       const repoInputs = buildRepoReportInputs(selectedRepos);
 
       const [userReport, repoReports] = await Promise.all([
-        generateUserReport(provider, userInput),
-        generateRepoReports(provider, repoInputs),
+        generateUserReport(llmConfig, userInput),
+        generateRepoReports(llmConfig, repoInputs),
       ]);
 
       if (userReport) {
@@ -417,6 +439,7 @@ export async function runAnalyze(
     llm: llmReport,
     llmEnabled: llmAvailable,
     llmProvider: provider,
+    llmModel: resolveLlmModelLabel(llmConfig),
     summary,
     generatedAt: new Date().toISOString(),
     cached: false,

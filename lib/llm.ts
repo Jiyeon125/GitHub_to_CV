@@ -25,24 +25,144 @@ import type {
   LLMUserReport,
 } from "./types";
 
-export type LlmProvider = "gateway" | "none";
+export type LlmProvider = "gateway" | "custom" | "none";
+
+// UI 사이드바에서 그대로 사용할 모델 프리셋 목록.
+// - 의도적으로 mini/nano/flash 같은 경량 모델은 빼고, 컨텍스트 이해가 잘 되는 동급 상위 모델만 노출한다.
+// - 라벨/설명만 바꾸려면 이 배열만 수정하면 된다.
+export const LLM_MODEL_PRESETS: ReadonlyArray<{
+  id: "gateway-gpt" | "gateway-claude" | "gateway-gemini";
+  label: string;
+  description: string;
+}> = [
+  {
+    id: "gateway-gpt",
+    label: "OpenAI GPT (gpt-5)",
+    description: "재현성·JSON 안정성 우선. 기본 추천.",
+  },
+  {
+    id: "gateway-claude",
+    label: "Anthropic Claude Sonnet",
+    description: "한국어 문장의 자연스러움이 강점.",
+  },
+  {
+    id: "gateway-gemini",
+    label: "Google Gemini 2.5 Pro",
+    description: "긴 컨텍스트와 속도 균형.",
+  },
+];
+
+// 사용자가 사이드바에서 고를 수 있는 모델 프리셋.
+// - "gateway-*" : 서버에 등록된 MINDLOGIC_API_KEY 로 게이트웨이를 거쳐 호출 (사용자 키 불필요)
+// - "custom"    : 사용자가 직접 OpenAI 호환 API key/base URL/model 을 입력해 호출
+export type LlmModelChoice =
+  | "gateway-gpt"
+  | "gateway-claude"
+  | "gateway-gemini"
+  | "custom";
+
+// 사이드바 / API 요청에서 함께 전달되는 LLM 설정.
+// - choice 는 프리셋 식별자
+// - custom 일 때만 apiKey/baseUrl/model 이 필요
+export type LlmConfig = {
+  choice: LlmModelChoice;
+  // custom 모드 한정 입력값. 그 외에는 무시한다.
+  apiKey?: string | null;
+  baseUrl?: string | null;
+  model?: string | null;
+};
 
 const DEFAULT_GATEWAY_BASE_URL = "https://factchat-cloud.mindlogic.ai/v1/gateway";
-const DEFAULT_GATEWAY_MODEL = "claude-sonnet-4-6";
+
+// 게이트웨이 프리셋 모델 ID.
+// - nano/mini/flash 같은 경량 모델은 컨텍스트 이해가 약해 본 서비스 프롬프트(JSON 강제 + 화이트리스트)
+//   에서 자주 깨지므로 의도적으로 제외하고, 한 단계 위 모델 ID 를 기본값으로 둔다.
+// - 게이트웨이가 지원하는 정확한 모델 ID 가 다르면 환경 변수 MINDLOGIC_MODEL_GPT / _CLAUDE / _GEMINI
+//   로 손쉽게 재정의할 수 있도록 했다.
+// - 2026-05 기준 Mindlogic 게이트웨이가 노출하는 OpenAI 모델은 gpt-5.x 시리즈이며 gpt-4o 는 권한 거부됨.
+//   따라서 기본값을 컨텍스트 이해가 잘 되는 gpt-5.4 로 둔다.
+const GATEWAY_MODEL_GPT = process.env.MINDLOGIC_MODEL_GPT ?? "gpt-5.4";
+const GATEWAY_MODEL_CLAUDE = process.env.MINDLOGIC_MODEL_CLAUDE ?? "claude-sonnet-4-6";
+const GATEWAY_MODEL_GEMINI = process.env.MINDLOGIC_MODEL_GEMINI ?? "gemini-2.5-pro";
+
+// 하위 호환: 단일 MINDLOGIC_MODEL 환경 변수가 지정돼 있으면 그 값으로 GPT 프리셋을 덮는다.
+const LEGACY_GATEWAY_MODEL = process.env.MINDLOGIC_MODEL;
+const RESOLVED_GATEWAY_MODELS: Record<"gateway-gpt" | "gateway-claude" | "gateway-gemini", string> = {
+  "gateway-gpt": LEGACY_GATEWAY_MODEL ?? GATEWAY_MODEL_GPT,
+  "gateway-claude": GATEWAY_MODEL_CLAUDE,
+  "gateway-gemini": GATEWAY_MODEL_GEMINI,
+};
 
 const GATEWAY_BASE_URL = (process.env.MINDLOGIC_BASE_URL ?? DEFAULT_GATEWAY_BASE_URL).replace(/\/+$/, "");
-const GATEWAY_MODEL = process.env.MINDLOGIC_MODEL ?? DEFAULT_GATEWAY_MODEL;
 
 // 환경 변수로 미세 조정 가능하지만, 기본값은 재현성 최우선으로 0 에 가깝게 둔다.
-const LLM_TEMPERATURE = Number(process.env.LLM_TEMPERATURE ?? "0");
+// 잘못된 문자열이 들어오면 NaN 이 모델 측 400 오류를 유발하므로 안전 가드를 둔다.
+function parseTemperature(): number {
+  const raw = process.env.LLM_TEMPERATURE;
+  if (!raw) return 0;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed)) return 0;
+  return Math.max(0, Math.min(2, parsed));
+}
+const LLM_TEMPERATURE = parseTemperature();
 
 // 프롬프트 버전. 프롬프트 본문 또는 호출 파라미터 형태가 바뀌면 이 문자열을 올려
 // seed 와 캐시(buildAnalyzeCacheKey 는 별도지만 분석 결과 자체 캐시) 가 자동으로 무효화되도록 한다.
 const PROMPT_VERSION = "v5-scope-neutral-2026-05-23";
 
-export function detectLlmProvider(): LlmProvider {
-  if (process.env.MINDLOGIC_API_KEY) return "gateway";
-  return "none";
+// 내부적으로 실제 호출에 쓰이는 해석된 설정.
+// - 외부 LlmConfig 와 환경 변수를 합쳐 만든다.
+type ResolvedLlmCall = {
+  provider: LlmProvider;
+  apiKey: string;
+  baseUrl: string;
+  model: string;
+};
+
+// 게이트웨이/커스텀 키 존재 여부만으로 LLM 사용 가능성을 판단한다.
+// - config 가 custom 이고 키가 비어 있으면 "none" 으로 간주
+// - config 가 gateway 계열이고 서버에 MINDLOGIC_API_KEY 가 없으면 "none"
+export function detectLlmProviderFromConfig(config: LlmConfig | null | undefined): LlmProvider {
+  if (!config) return process.env.MINDLOGIC_API_KEY ? "gateway" : "none";
+  if (config.choice === "custom") {
+    return config.apiKey && config.apiKey.trim() ? "custom" : "none";
+  }
+  return process.env.MINDLOGIC_API_KEY ? "gateway" : "none";
+}
+
+// 하위 호환: 옛 호출부에서 인자 없이 쓰던 시그니처도 유지한다.
+export function detectLlmProvider(config?: LlmConfig | null): LlmProvider {
+  return detectLlmProviderFromConfig(config ?? null);
+}
+
+function resolveLlmCall(config: LlmConfig | null | undefined): ResolvedLlmCall | null {
+  if (!config || config.choice !== "custom") {
+    const key = process.env.MINDLOGIC_API_KEY;
+    if (!key) return null;
+    const choice =
+      (config?.choice as keyof typeof RESOLVED_GATEWAY_MODELS | undefined) ?? "gateway-gpt";
+    const model =
+      choice in RESOLVED_GATEWAY_MODELS
+        ? RESOLVED_GATEWAY_MODELS[choice as keyof typeof RESOLVED_GATEWAY_MODELS]
+        : RESOLVED_GATEWAY_MODELS["gateway-gpt"];
+    return {
+      provider: "gateway",
+      apiKey: key,
+      baseUrl: GATEWAY_BASE_URL,
+      model,
+    };
+  }
+
+  const apiKey = (config.apiKey ?? "").trim();
+  if (!apiKey) return null;
+  const baseUrl = (config.baseUrl ?? "").trim() || "https://api.openai.com/v1";
+  const model = (config.model ?? "").trim() || "gpt-4o";
+  return {
+    provider: "custom",
+    apiKey,
+    baseUrl: baseUrl.replace(/\/+$/, ""),
+    model,
+  };
 }
 
 // === 입력 페이로드 빌더 (LLM 토큰 절약을 위해 요약형 데이터만 전달) ===
@@ -248,48 +368,95 @@ const REPO_SYSTEM_PROMPT = `당신은 GitHub 저장소 분석 결과를 이력�
 출력 예: {"reports":[{"repo_name":"focusdash","project_summary":"구조와 설정 파일 기준 Next.js 기반 생산성 대시보드 웹앱으로 추정되는 프로젝트입니다.","core_features":["알림 센터","대시보드 화면","상태 관리"],"portfolio_sentence":"Next.js 와 Zustand 를 활용해 생산성 대시보드의 주요 UI 와 상태 관리 구조를 구현했습니다.","resume_bullets":["대시보드형 생산성 웹앱의 프론트엔드 화면을 구현했음","알림 센터 컴포넌트와 라우팅 구조를 구성했음","공용 컴포넌트와 상태 store 폴더 구조를 정리했음"],"interview_questions":["상태 관리 라이브러리로 Zustand 를 선택한 이유에 대해 설명해 주세요.","알림 센터 UI 구조를 어떻게 분리했나요?"],"confidence":"medium"}]}`;
 
 // === 호출 헬퍼 ===
-// Mindlogic 게이트웨이는 OpenAI 호환 Chat Completions 스펙을 따른다.
-//   POST {BASE_URL}/chat/completions
-//   Authorization: Bearer ${MINDLOGIC_API_KEY}
-// 모델 ID 는 model 필드로 전달하며 게이트웨이가 각 백엔드(OpenAI / Claude / Gemini)로 라우팅한다.
-async function callGateway(
+// OpenAI 호환 Chat Completions 스펙을 따르는 엔드포인트를 모두 같은 함수로 호출한다.
+//   POST {baseUrl}/chat/completions
+//   Authorization: Bearer ${apiKey}
+// Mindlogic 게이트웨이, 사용자 직접 입력한 OpenAI / Anthropic 호환 base URL 모두 이 함수를 사용한다.
+
+// 모델 ID 패턴으로 seed 지원 여부를 추정한다.
+// - Gemini 의 OpenAI 호환 엔드포인트는 'seed' 필드를 모르고 400 으로 거절한다.
+//   ("Invalid JSON payload received. Unknown name 'seed': Cannot find field.")
+// - 그 외 (OpenAI / Claude / 사용자 지정) 는 seed 를 보내도 안전하다.
+//   OpenAI 는 실제로 반영, Claude 는 무시만 함.
+function modelLikelySupportsSeed(model: string): boolean {
+  return !/gemini/i.test(model);
+}
+
+type CallParams = {
+  withSeed: boolean;
+};
+
+async function sendChatCompletion(
+  call: ResolvedLlmCall,
+  systemPrompt: string,
+  stableUserPayload: string,
+  seed: number,
+  params: CallParams,
+): Promise<Response> {
+  const body: Record<string, unknown> = {
+    model: call.model,
+    temperature: LLM_TEMPERATURE,
+    messages: [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: stableUserPayload },
+    ],
+  };
+  if (params.withSeed) body.seed = seed;
+
+  return fetch(`${call.baseUrl}/chat/completions`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${call.apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+}
+
+async function callOpenAICompatible(
+  call: ResolvedLlmCall,
   systemPrompt: string,
   stableUserPayload: string,
   seed: number,
 ): Promise<string | null> {
-  const apiKey = process.env.MINDLOGIC_API_KEY;
-  if (!apiKey) return null;
-
   try {
-    // 게이트웨이 뒷단 모델별 호환성 메모:
+    // 모델별 호환성 메모:
     //   - response_format: OpenAI 는 json_object, Anthropic 은 json_schema 형식이라 형식이 달라 → 보내지 않는다.
     //     system prompt 의 "JSON 만 출력" 지시 + tryParseJson 의 코드 블록 fallback 으로 처리.
     //   - top_p + temperature: Anthropic 계열은 둘 다 보내면 400 을 반환한다.
-    //     ("`temperature` and `top_p` cannot both be specified for this model")
     //     재현성에서 가장 중요한 temperature 만 남긴다.
     //   - frequency_penalty / presence_penalty: Anthropic 미지원 → 제거.
-    //   - seed: OpenAI 계열에서만 반영. Claude/Gemini 는 무시하지만 거절하지는 않아 안전하게 보낸다.
-    //     무시되더라도 다른 결정성 장치(temperature=0, 화이트리스트, stableStringify) 가 어휘/구조를 잡아준다.
-    const response = await fetch(`${GATEWAY_BASE_URL}/chat/completions`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: GATEWAY_MODEL,
-        temperature: LLM_TEMPERATURE,
-        seed,
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: stableUserPayload },
-        ],
-      }),
+    //   - seed: OpenAI 계열에서만 반영. Gemini 는 명시적으로 400 으로 거절하므로 모델 패턴으로 미리 거른다.
+    //     그래도 처음 보내는 모델이 거절하면 400 응답 본문에 'seed' 가 보이는지 확인해 한 번 더 재시도한다.
+    const startWithSeed = modelLikelySupportsSeed(call.model);
+    let response = await sendChatCompletion(call, systemPrompt, stableUserPayload, seed, {
+      withSeed: startWithSeed,
     });
+
+    if (!response.ok && response.status === 400 && startWithSeed) {
+      const errorText = await response.text().catch(() => "");
+      if (/seed/i.test(errorText)) {
+        // 'seed' 필드를 모르는 모델일 가능성이 높다 → seed 빼고 한 번 더 시도
+        console.warn(
+          `[llm] ${call.provider}/${call.model} rejected seed; retrying without seed.`,
+        );
+        response = await sendChatCompletion(call, systemPrompt, stableUserPayload, seed, {
+          withSeed: false,
+        });
+      } else {
+        console.error(
+          `[llm] ${call.provider}/${call.model} 400 ${errorText.slice(0, 200)}`,
+        );
+        return null;
+      }
+    }
 
     if (!response.ok) {
       const errorText = await response.text().catch(() => "");
-      console.error(`[llm] Gateway ${response.status} ${errorText.slice(0, 200)}`);
+      // 응답 본문에 API key 가 echo 되는 경우는 거의 없지만, 만약을 위해 200자 미만으로 잘라 로그.
+      console.error(
+        `[llm] ${call.provider}/${call.model} ${response.status} ${errorText.slice(0, 200)}`,
+      );
       return null;
     }
 
@@ -298,21 +465,27 @@ async function callGateway(
     };
     return data.choices?.[0]?.message?.content ?? null;
   } catch (error) {
-    console.error("[llm] Gateway request failed", error);
+    console.error(`[llm] ${call.provider}/${call.model} request failed`, error);
     return null;
   }
 }
 
 async function callProvider(
-  provider: LlmProvider,
+  config: LlmConfig | null | undefined,
   systemPrompt: string,
   payload: object,
   seedSalt: string,
 ): Promise<string | null> {
-  if (provider !== "gateway") return null;
+  const call = resolveLlmCall(config);
+  if (!call) return null;
   const stableInput = stableStringify(payload);
-  const seed = deterministicSeed(stableInput, `${PROMPT_VERSION}|${seedSalt}`);
-  return callGateway(systemPrompt, stableInput, seed);
+  // seed 에는 모델 ID 도 섞어 같은 입력이라도 모델이 바뀌면 seed 가 달라지도록 한다.
+  // (같은 모델 + 같은 입력 → 동일 seed, 모델만 바꿔도 캐시/seed 가 갈라지므로 비교 시연이 자연스럽다.)
+  const seed = deterministicSeed(
+    stableInput,
+    `${PROMPT_VERSION}|${call.provider}|${call.model}|${seedSalt}`,
+  );
+  return callOpenAICompatible(call, systemPrompt, stableInput, seed);
 }
 
 // 모델이 system prompt 를 따르지 않고 다음과 같이 응답하는 경우를 모두 흡수한다.
@@ -355,11 +528,11 @@ function tryParseJson<T>(text: string | null): T | null {
 
 // === 외부 노출 함수 ===
 export async function generateUserReport(
-  provider: LlmProvider,
+  config: LlmConfig | null | undefined,
   payload: UserReportInput,
 ): Promise<LLMUserReport | null> {
-  if (provider === "none") return null;
-  const text = await callProvider(provider, USER_SYSTEM_PROMPT, payload, "user-report");
+  if (detectLlmProviderFromConfig(config) === "none") return null;
+  const text = await callProvider(config, USER_SYSTEM_PROMPT, payload, "user-report");
   const parsed = tryParseJson<LLMUserReport>(text);
   if (!parsed) return null;
 
@@ -373,11 +546,11 @@ export async function generateUserReport(
 }
 
 export async function generateRepoReports(
-  provider: LlmProvider,
+  config: LlmConfig | null | undefined,
   payload: RepoReportInput[],
 ): Promise<LLMRepoReport[] | null> {
-  if (provider === "none" || payload.length === 0) return null;
-  const text = await callProvider(provider, REPO_SYSTEM_PROMPT, { repos: payload }, "repo-reports");
+  if (detectLlmProviderFromConfig(config) === "none" || payload.length === 0) return null;
+  const text = await callProvider(config, REPO_SYSTEM_PROMPT, { repos: payload }, "repo-reports");
   const parsed = tryParseJson<{ reports?: LLMRepoReport[] }>(text);
   if (!parsed || !Array.isArray(parsed.reports)) return null;
 
