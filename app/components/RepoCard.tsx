@@ -6,6 +6,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "./ui/collap
 import { ReliabilityBadge } from "./ReliabilityBadge";
 import { TechChip } from "./TechChip";
 import CopyButton from "./CopyButton";
+import InfoTooltip from "./InfoTooltip";
 import type { AnalyzedRepo } from "@/lib/types";
 
 function formatDate(value: string): string {
@@ -14,6 +15,31 @@ function formatDate(value: string): string {
   } catch {
     return value;
   }
+}
+
+// 두 신뢰도 뱃지(README / 분석)의 의미와 등급을 정리한 범례.
+function ReliabilityLegend() {
+  return (
+    <div className="flex flex-col gap-2">
+      <div>
+        <p className="mb-0.5 font-semibold text-foreground">README 뱃지</p>
+        <p className="text-muted-foreground">
+          README 충실도 — 길이, 목적·기능·실행·기술 설명, 구조/커밋 일치도로 평가
+        </p>
+        <p className="mt-0.5 text-foreground">
+          high · medium · low · <span className="text-muted-foreground">missing(README 없음)</span>
+        </p>
+      </div>
+      <div className="border-t border-border pt-1.5">
+        <p className="mb-0.5 font-semibold text-foreground">분석 뱃지</p>
+        <p className="text-muted-foreground">분석 결과 자체의 신뢰도</p>
+        <p className="mt-0.5 text-foreground">high · medium · low</p>
+      </div>
+      <p className="border-t border-border pt-1.5 text-muted-foreground">
+        자세한 근거는 카드 하단 <span className="text-foreground">‘분석 메타정보’</span> 에서 확인하세요.
+      </p>
+    </div>
+  );
 }
 
 export default function RepoCard({ repo }: { repo: AnalyzedRepo }) {
@@ -45,9 +71,15 @@ export default function RepoCard({ repo }: { repo: AnalyzedRepo }) {
             </span>
           )}
         </div>
-        <div className="flex gap-2 flex-wrap">
+        <div className="flex gap-2 flex-wrap items-center">
           <ReliabilityBadge level={repo.readmeReliability.level} label={`README ${repo.readmeReliability.level}`} />
           <ReliabilityBadge level={repo.analysisConfidence} label={`분석 ${repo.analysisConfidence}`} />
+          <InfoTooltip
+            label="신뢰도 뱃지 설명"
+            align="left"
+            panelClassName="w-72"
+            content={<ReliabilityLegend />}
+          />
         </div>
       </div>
 
@@ -68,13 +100,6 @@ export default function RepoCard({ repo }: { repo: AnalyzedRepo }) {
             <TechChip key={tech} name={tech} />
           ))}
         </div>
-      )}
-
-      {llm && (
-        <p className="no-print text-[11px] text-muted-foreground/70 flex items-center gap-1.5">
-          <span aria-hidden>✨</span>
-          AI 생성 초안입니다. 제출 전 직접 검토·수정하세요.
-        </p>
       )}
 
       {llm?.core_features && llm.core_features.length > 0 && (
@@ -137,9 +162,6 @@ export default function RepoCard({ repo }: { repo: AnalyzedRepo }) {
             <ChevronDown className={`w-4 h-4 transition-transform ${questionsOpen ? "rotate-180" : ""}`} />
           </CollapsibleTrigger>
           <CollapsibleContent className="mt-2">
-            <div className="flex justify-end mb-1.5">
-              <CopyButton text={llm.interview_questions.join("\n")} label="전체 복사" />
-            </div>
             <ol className="space-y-2 list-decimal list-inside">
               {llm.interview_questions.map((q, i) => (
                 <li key={i} className="text-sm text-muted-foreground">{q}</li>

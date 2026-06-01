@@ -51,11 +51,12 @@ export type DomainScores = Record<DomainKey, number>;
 export type ActivityPattern = {
   night_ratio: number;
   morning_ratio: number;
+  afternoon_ratio: number;
   weekend_ratio: number;
   consistency_score: number;
   commit_sample_size: number;
   activity_tags: string[];
-  // 야간/오전/주말 판정에 사용한 IANA 타임존 (UI 표기용)
+  // 야간/오전/오후/주말 판정에 사용한 IANA 타임존 (UI 표기용)
   timezone: string;
 };
 

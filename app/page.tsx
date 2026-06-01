@@ -17,7 +17,7 @@ const DEFAULT_LLM_CONFIG: LlmConfig = {
   model: null,
 };
 
-const EXAMPLE_USERNAMES = ["torvalds", "gaearon", "yyx990803"];
+const EXAMPLE_USERNAMES = ["Jiyeon125", "Kibeom-Hong", "helblazer811"];
 
 const PdfDownloadButton = dynamic(() => import("./components/PdfDownloadButton"), {
   ssr: false,
@@ -185,7 +185,7 @@ export default function Home() {
 
         {/* Main Content */}
         <div className="app-scroll flex-1 overflow-y-auto">
-          {loading && <LoadingProgress useLlm={useLlm} />}
+          {loading && <LoadingProgress useLlm={useLlm} representativeCount={representativeCount} />}
 
           {error && !loading && (
             <div className="flex items-center justify-center min-h-[400px] p-6">

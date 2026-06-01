@@ -79,6 +79,10 @@ export default function Sidebar({
   // 게스트 GitHub PAT 입력 섹션 펼침 여부
   const [showGuestTokenPanel, setShowGuestTokenPanel] = useState(false);
   const [showGuestToken, setShowGuestToken] = useState(false);
+  // 활동 시간대 기준 변경 패널 펼침 여부 (기본은 브라우저 자동 감지값 사용 → 접어둔다)
+  const [showTimezonePanel, setShowTimezonePanel] = useState(false);
+  const currentTimezoneLabel =
+    timezoneOptions.find((tz) => tz.value === timezone)?.label ?? timezone;
   const { theme, toggleTheme } = useTheme();
   const { data: session, status } = useSession();
   const isAuthed = status === "authenticated" && Boolean(session?.user?.login);
@@ -242,7 +246,7 @@ export default function Sidebar({
             id="username"
             value={effectiveMode === "self" ? sessionLogin : username}
             onChange={(e) => onUsernameChange(e.target.value)}
-            placeholder={effectiveMode === "self" ? "@내계정" : "@torvalds"}
+            placeholder={effectiveMode === "self" ? "@내계정" : "GitHub username 입력"}
             autoComplete="off"
             spellCheck={false}
             aria-label="GitHub username"
@@ -309,25 +313,44 @@ export default function Sidebar({
           )}
         </div>
 
-        <div>
-          <Label htmlFor="timezone" className="text-sm text-muted-foreground mb-2 block">
-            활동 시간대 기준
-          </Label>
-          <select
-            id="timezone"
-            value={timezone}
-            onChange={(e) => onTimezoneChange(e.target.value)}
-            className="w-full bg-input-background border border-border rounded-md px-3 py-2 text-sm text-foreground focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all"
+        <div className="rounded-lg border border-border bg-card p-2.5">
+          <button
+            type="button"
+            onClick={() => setShowTimezonePanel((v) => !v)}
+            className="flex w-full items-center justify-between gap-2 text-left"
+            aria-expanded={showTimezonePanel}
           >
-            {timezoneOptions.map((tz) => (
-              <option key={tz.value} value={tz.value}>
-                {tz.label}
-              </option>
-            ))}
-          </select>
-          <p className="mt-1 text-[11px] text-muted-foreground">
-            commit 시각을 이 타임존으로 환산해 야간/오전/주말 비율을 계산합니다.
-          </p>
+            <div className="min-w-0">
+              <p className="text-xs font-medium text-foreground">활동 시간대 기준</p>
+              <p className="text-[10px] text-muted-foreground mt-0.5 truncate">{currentTimezoneLabel}</p>
+            </div>
+            <span className="text-[11px] text-muted-foreground shrink-0">
+              {showTimezonePanel ? "닫기" : "변경"}
+            </span>
+          </button>
+
+          {showTimezonePanel && (
+            <div className="flex flex-col gap-1.5 pt-2 mt-2 border-t border-border">
+              <Label htmlFor="timezone" className="sr-only">
+                활동 시간대 기준
+              </Label>
+              <select
+                id="timezone"
+                value={timezone}
+                onChange={(e) => onTimezoneChange(e.target.value)}
+                className="w-full bg-input-background border border-border rounded-md px-3 py-2 text-sm text-foreground focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all"
+              >
+                {timezoneOptions.map((tz) => (
+                  <option key={tz.value} value={tz.value}>
+                    {tz.label}
+                  </option>
+                ))}
+              </select>
+              <p className="text-[10px] text-muted-foreground leading-relaxed">
+                기본값은 브라우저에서 자동 감지한 시간대입니다. commit 시각을 이 타임존으로 환산해 야간/오전/주말 비율을 계산합니다.
+              </p>
+            </div>
+          )}
         </div>
 
         <div className="flex items-center justify-between">

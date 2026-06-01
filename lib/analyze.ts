@@ -321,6 +321,7 @@ export async function runAnalyze(
       activityPattern: {
         night_ratio: 0,
         morning_ratio: 0,
+        afternoon_ratio: 0,
         weekend_ratio: 0,
         consistency_score: 0,
         commit_sample_size: 0,
@@ -540,7 +541,7 @@ export async function runAnalyze(
       : `공개 저장소 ${reportRepoCount}개`;
   const summary =
     llmReport?.summary ||
-    `${username} 사용자의 ${summaryScopeLabel} 중 대표 ${selectedRepos.length}개를 분석한 추정 결과입니다. 주 언어는 ${topLanguage}로 관찰됩니다.`;
+    `${username}의 ${summaryScopeLabel} 전체를 분석하고 그중 대표 ${selectedRepos.length}개를 자세히 살펴본 추정 결과입니다. 관찰된 주 언어 : ${topLanguage}.`;
 
   return {
     username,

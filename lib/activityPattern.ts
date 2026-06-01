@@ -132,9 +132,29 @@ function deriveActivityTags(
     return tags;
   }
 
-  if (pattern.night_ratio >= 0.4) tags.push("야간 활동 경향");
-  if (pattern.morning_ratio >= 0.4) tags.push("오전 활동 경향");
-  if (pattern.weekend_ratio >= 0.35) tags.push("주말 집중형");
+  // 시간대 경향: 두드러진 구간이 있으면 해당 태그를, 아무 구간도 두드러지지 않으면
+  // "시간대 고르게 분포" 를 달아 한쪽으로만 몰려 보이지 않게 한다.
+  let hasTimeTag = false;
+  if (pattern.night_ratio >= 0.4) {
+    tags.push("야간 활동 경향");
+    hasTimeTag = true;
+  }
+  if (pattern.morning_ratio >= 0.4) {
+    tags.push("오전 활동 경향");
+    hasTimeTag = true;
+  }
+  if (pattern.afternoon_ratio >= 0.4) {
+    tags.push("오후/저녁 활동 경향");
+    hasTimeTag = true;
+  }
+  if (!hasTimeTag) tags.push("시간대 고르게 분포");
+
+  // 요일 경향: 주말 집중 / 주중 집중 두 방향을 모두 표기.
+  if (pattern.weekend_ratio >= 0.35) {
+    tags.push("주말 집중형");
+  } else if (pattern.weekend_ratio <= 0.1) {
+    tags.push("주중 집중형");
+  }
 
   if (pattern.consistency_score >= 0.5) {
     tags.push("꾸준한 커밋형");
@@ -161,6 +181,7 @@ export function analyzeActivityPattern(
     return {
       night_ratio: 0,
       morning_ratio: 0,
+      afternoon_ratio: 0,
       weekend_ratio: 0,
       consistency_score: 0,
       commit_sample_size: 0,
@@ -171,6 +192,7 @@ export function analyzeActivityPattern(
 
   let night = 0;
   let morning = 0;
+  let afternoon = 0;
   let weekend = 0;
 
   for (const commit of valid) {
@@ -182,6 +204,8 @@ export function analyzeActivityPattern(
     if (hour >= 21 || hour <= 3) night += 1;
     // 오전: 05시 ~ 11시
     if (hour >= 5 && hour <= 11) morning += 1;
+    // 오후/저녁: 12시 ~ 20시
+    if (hour >= 12 && hour <= 20) afternoon += 1;
     // 주말: 토(6), 일(0)
     if (day === 0 || day === 6) weekend += 1;
   }
@@ -190,6 +214,7 @@ export function analyzeActivityPattern(
   const partial = {
     night_ratio: ratio(night, total),
     morning_ratio: ratio(morning, total),
+    afternoon_ratio: ratio(afternoon, total),
     weekend_ratio: ratio(weekend, total),
     consistency_score: calculateConsistency(valid, shift),
     commit_sample_size: total,

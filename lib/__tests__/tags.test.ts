@@ -6,6 +6,7 @@ import type { ActivityPattern, DomainScores } from "@/lib/types";
 const activity: ActivityPattern = {
   night_ratio: 0.6,
   morning_ratio: 0,
+  afternoon_ratio: 0.4,
   weekend_ratio: 0,
   consistency_score: 0.7,
   commit_sample_size: 20,

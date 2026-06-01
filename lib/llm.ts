@@ -108,7 +108,7 @@ const LLM_TEMPERATURE = parseTemperature();
 
 // 프롬프트 버전. 프롬프트 본문 또는 호출 파라미터 형태가 바뀌면 이 문자열을 올려
 // seed 와 캐시(buildAnalyzeCacheKey 는 별도지만 분석 결과 자체 캐시) 가 자동으로 무효화되도록 한다.
-const PROMPT_VERSION = "v5-scope-neutral-2026-05-23";
+const PROMPT_VERSION = "v6-deeper-interview-2026-06-01";
 
 // 내부적으로 실제 호출에 쓰이는 해석된 설정.
 // - 외부 LlmConfig 와 환경 변수를 합쳐 만든다.
@@ -217,6 +217,16 @@ export function buildUserReportInput(opts: {
   };
 }
 
+// 잡무성 commit(빌드/포맷/문서/CI/의존성 등)은 이력서 문장과 면접질문을 피상적으로 만들기 쉽다.
+// 기능/수정/리팩터/성능 같은 의미 있는 변경을 우선 노출하고, 전부 걸러지면 원본을 사용한다.
+const TRIVIAL_COMMIT_RE =
+  /^(chore|ci|build|docs?|test|style|format|lint|bump|release|revert|merge)\b|^(merge\s|bump\s|update\s+deps|dependabot)/i;
+
+function selectMeaningfulCommits(messages: string[]): string[] {
+  const meaningful = messages.filter((m) => !TRIVIAL_COMMIT_RE.test(m.trim()));
+  return (meaningful.length > 0 ? meaningful : messages).slice(0, 6);
+}
+
 export function buildRepoReportInputs(repos: AnalyzedRepo[]): RepoReportInput[] {
   return repos.map((repo) => ({
     repo_name: repo.name,
@@ -225,7 +235,7 @@ export function buildRepoReportInputs(repos: AnalyzedRepo[]): RepoReportInput[] 
     languages: repo.language ? [repo.language] : [],
     tech_stack: repo.techStack,
     structure_summary: repo.structureSummary.slice(0, 8),
-    recent_commits: repo.recentCommitMessages.slice(0, 6),
+    recent_commits: selectMeaningfulCommits(repo.recentCommitMessages),
     inference_notes: repo.inferenceNotes,
   }));
 }
@@ -355,9 +365,11 @@ const REPO_SYSTEM_PROMPT = `당신은 GitHub 저장소 분석 결과를 이력�
   - 동사 종결 화이트리스트에서만 선택: "구현했음" / "구성했음" / "정리했음" / "작성했음" / "분석했음" / "추가했음".
   - 단정 표현 금지 ("개발자임" 등).
 - interview_questions:
-  - 정확히 2개. 각 60자 이내.
-  - 형식: "~을(를) 어떻게 ~?" 또는 "~에 대해 설명해 주세요." 중 하나로 끝낼 것.
-  - 입력 데이터로 답할 수 있는 질문만.
+  - 정확히 2개. 각 80자 이내.
+  - 실제 기술 면접에서 나올 법한 심화 질문으로 작성: 기술 선택의 이유·트레이드오프, 설계/아키텍처 결정, 성능·확장성·테스트·에러 처리 전략 등.
+  - tech_stack / structure_summary / 도메인 신호에 근거하되, recent_commits 나 resume_bullets 문구를 그대로 되묻지 말 것 (단순 사실 확인 질문 금지).
+  - 입력에 없는 기능·기술은 가정하지 말 것. 근거가 약하면 일반적인 설계 질문으로 작성.
+  - "~ 이유는 무엇인가요?" / "~ 어떻게 설계했나요?" / "~ 에 대해 설명해 주세요." 중 하나로 끝낼 것.
 - confidence:
   - 입력 readme_reliability 가 "high" 면 "high" 또는 "medium" 중 선택.
   - "medium" 이면 "medium" 또는 "low".
@@ -365,7 +377,7 @@ const REPO_SYSTEM_PROMPT = `당신은 GitHub 저장소 분석 결과를 이력�
 
 [예시 응답]
 입력 예: { "repos": [ { "repo_name":"focusdash", "description":"productivity dashboard", "readme_reliability":"medium", "languages":["TypeScript"], "tech_stack":["Next.js","React","Tailwind CSS","Zustand"], "structure_summary":["src/app","components","shared","store"], "recent_commits":["feat: add notification popover","refactor: move header to layout","fix: toast UI rendering issue"], "inference_notes":["설정 파일 기준 프론트엔드 웹앱으로 추정"] } ] }
-출력 예: {"reports":[{"repo_name":"focusdash","project_summary":"구조와 설정 파일 기준 Next.js 기반 생산성 대시보드 웹앱으로 추정되는 프로젝트입니다.","core_features":["알림 센터","대시보드 화면","상태 관리"],"portfolio_sentence":"Next.js 와 Zustand 를 활용해 생산성 대시보드의 주요 UI 와 상태 관리 구조를 구현했습니다.","resume_bullets":["대시보드형 생산성 웹앱의 프론트엔드 화면을 구현했음","알림 센터 컴포넌트와 라우팅 구조를 구성했음","공용 컴포넌트와 상태 store 폴더 구조를 정리했음"],"interview_questions":["상태 관리 라이브러리로 Zustand 를 선택한 이유에 대해 설명해 주세요.","알림 센터 UI 구조를 어떻게 분리했나요?"],"confidence":"medium"}]}`;
+출력 예: {"reports":[{"repo_name":"focusdash","project_summary":"구조와 설정 파일 기준 Next.js 기반 생산성 대시보드 웹앱으로 추정되는 프로젝트입니다.","core_features":["알림 센터","대시보드 화면","상태 관리"],"portfolio_sentence":"Next.js 와 Zustand 를 활용해 생산성 대시보드의 주요 UI 와 상태 관리 구조를 구현했습니다.","resume_bullets":["대시보드형 생산성 웹앱의 프론트엔드 화면을 구현했음","알림 센터 컴포넌트와 라우팅 구조를 구성했음","공용 컴포넌트와 상태 store 폴더 구조를 정리했음"],"interview_questions":["전역 상태 관리로 Context API 가 아닌 Zustand 를 택한 이유와 트레이드오프는 무엇인가요?","위젯이 늘어나는 대시보드에서 상태 구조와 리렌더링 성능을 어떻게 설계하셨나요?"],"confidence":"medium"}]}`;
 
 // === 호출 헬퍼 ===
 // OpenAI 호환 Chat Completions 스펙을 따르는 엔드포인트를 모두 같은 함수로 호출한다.

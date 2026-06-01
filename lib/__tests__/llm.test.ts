@@ -75,6 +75,7 @@ describe("buildUserReportInput / buildRepoReportInputs", () => {
   const activity: ActivityPattern = {
     night_ratio: 0.5,
     morning_ratio: 0.2,
+    afternoon_ratio: 0.3,
     weekend_ratio: 0.3,
     consistency_score: 0.6,
     commit_sample_size: 12,

@@ -8,6 +8,7 @@ import RepoCard from "./RepoCard";
 import { TagCard } from "./TagCard";
 import { WarningBanner } from "./WarningBanner";
 import CopyButton from "./CopyButton";
+import InfoTooltip from "./InfoTooltip";
 
 type Props = {
   data: AnalyzeResponse;
@@ -45,7 +46,9 @@ export default function Dashboard({ data }: Props) {
         {data.mode === "self" && data.privateIncluded
           ? "이 리포트는 본인 저장소(private 포함) 기반 추정 결과입니다."
           : "이 리포트는 GitHub 공개 저장소 기반 추정 결과입니다."}{" "}
-        결과는 검토 후 사용하십시오.
+        {data.llm
+          ? "요약·포트폴리오 문장·이력서 bullet 등은 AI가 생성한 초안이므로 사용 전 반드시 검토·수정하세요."
+          : "결과는 검토 후 사용하십시오."}
       </div>
 
       {/* Headline Card */}
@@ -80,9 +83,6 @@ export default function Dashboard({ data }: Props) {
               text={`${data.llm.headline}\n\n${data.summary}`}
               label="요약 복사"
             />
-            <span className="text-[11px] text-muted-foreground/70">
-              ✨ AI 생성 초안 · 제출 전 검토하세요.
-            </span>
           </div>
         )}
       </div>
@@ -109,8 +109,12 @@ export default function Dashboard({ data }: Props) {
       <div className="report-middle-grid grid grid-cols-1 lg:grid-cols-5 gap-3 lg:gap-4">
         <div className="report-domain-card lg:col-span-2 bg-card border border-border rounded-xl p-4 lg:p-5">
           <div className="mb-3">
-            <h3 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-1">
+            <h3 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-1 flex items-center gap-1.5">
               분야별 점수
+              <InfoTooltip
+                label="분야별 점수 설명"
+                text="전체 저장소의 언어 사용량 신호와 대표 저장소의 구조·설정파일 신호를 합산해 6개 분야를 0~100으로 정규화한 상대 점수입니다. 절대적 실력이 아니라 활동 비중을 나타냅니다."
+              />
             </h3>
             <p className="text-xs text-muted-foreground">({scopeLabel} 기준 추정 · 0~100)</p>
           </div>
