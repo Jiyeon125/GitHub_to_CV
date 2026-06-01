@@ -29,7 +29,7 @@ export default function ActivityPanel({ pattern }: Props) {
         <h3 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
           활동 패턴
         </h3>
-        <span className="text-xs text-muted-foreground">(KST 기준)</span>
+        <span className="text-xs text-muted-foreground">({pattern.timezone} 기준)</span>
       </div>
 
       <div className="grid grid-cols-3 gap-2 sm:gap-3 mb-3">

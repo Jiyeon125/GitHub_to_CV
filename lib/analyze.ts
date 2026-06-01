@@ -26,7 +26,7 @@ import {
   combineDomainSignals,
   scoreRepoForDomains,
 } from "./domainScores";
-import { analyzeActivityPattern } from "./activityPattern";
+import { analyzeActivityPattern, DEFAULT_TIMEZONE } from "./activityPattern";
 import { buildTagCandidates } from "./tags";
 import {
   buildRepoReportInputs,
@@ -325,6 +325,7 @@ export async function runAnalyze(
         consistency_score: 0,
         commit_sample_size: 0,
         activity_tags: ["저장소 정보 부족"],
+        timezone: options.timezone || DEFAULT_TIMEZONE,
       },
       topTagsCandidates: [],
       warnings: [`분석 가능한 ${scopeLabelForUser}가 부족합니다.`],
@@ -448,7 +449,7 @@ export async function runAnalyze(
 
   // === 활동 패턴 ===
   const commitsByRepo = selectedRepos.map((repo) => deepMap.get(repo.id)?.commits ?? []);
-  const activityPattern = analyzeActivityPattern(commitsByRepo);
+  const activityPattern = analyzeActivityPattern(commitsByRepo, options.timezone || DEFAULT_TIMEZONE);
 
   // === 기술 스택 분포 / 언어 분포 ===
   const techStackDistribution = aggregateTechStackDistribution(

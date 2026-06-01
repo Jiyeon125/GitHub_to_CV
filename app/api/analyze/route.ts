@@ -19,7 +19,7 @@ const GITHUB_USERNAME_REGEX = /^(?!-)(?!.*--)[A-Za-z0-9-]{1,39}(?<!-)$/;
 const GITHUB_TOKEN_REGEX = /^(ghp_|github_pat_|gho_|ghu_|ghs_|ghr_)[A-Za-z0-9_]{20,250}$/;
 const RATE_LIMIT_WINDOW_MS = 60_000;
 const RATE_LIMIT_MAX_REQUESTS = 20;
-// 메모리 기반 rate limit (PoC와 동일). 만료된 키는 주기적으로 정리한다.
+// 메모리 기반 rate limit. 만료된 키는 주기적으로 정리한다.
 const rateLimitStore = new Map<string, { count: number; resetAt: number }>();
 
 class ApiError extends Error {
@@ -107,6 +107,20 @@ function parseGuestGithubToken(input: unknown): string | null {
   return trimmed;
 }
 
+// 활동 패턴 판정 기준 타임존(IANA) 파싱.
+// - Intl 로 실제 인식 가능한 타임존인지 검증한다. 잘못된 값은 null → 서버 기본값(Asia/Seoul) 사용.
+function parseTimezone(input: unknown): string | null {
+  if (typeof input !== "string") return null;
+  const trimmed = input.trim().slice(0, 64);
+  if (!trimmed) return null;
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: trimmed });
+    return trimmed;
+  } catch {
+    return null;
+  }
+}
+
 function getClientIp(request: NextRequest) {
   const forwardedFor = request.headers.get("x-forwarded-for");
   if (forwardedFor) {
@@ -181,6 +195,7 @@ export async function POST(request: NextRequest) {
     const representativeCount = Number(body?.representativeCount ?? 3);
     const includePrivateRequested = Boolean(body?.includePrivate);
     const llmConfig = useLlm ? parseLlmConfig(body?.llmConfig) : null;
+    const timezone = parseTimezone(body?.timezone);
     // 게스트가 본인 PAT 으로 인증된 호출을 원하면 여기서 받는다.
     // (로그인 상태에서는 무시 — sessionAccessToken 이 항상 우선)
     const guestGithubToken = parseGuestGithubToken(body?.guestGithubToken);
@@ -242,7 +257,7 @@ export async function POST(request: NextRequest) {
       useLlm,
       mode,
       includePrivate,
-    })}:${llmTag}${guestTokenTag}`;
+    })}:${llmTag}${guestTokenTag}:tz=${timezone ?? "default"}`;
     const cached = getCached<AnalyzeResponse>(cacheKey);
     if (cached) {
       return NextResponse.json({ ...cached, cached: true });
@@ -254,7 +269,7 @@ export async function POST(request: NextRequest) {
       mode === "self" ? sessionAccessToken : hasGuestToken ? guestGithubToken : null;
 
     const payload = await runAnalyze(
-      { username, representativeCount: clampedRepresentativeCount, useLlm, llmConfig },
+      { username, representativeCount: clampedRepresentativeCount, useLlm, llmConfig, timezone },
       {
         mode,
         includePrivate,

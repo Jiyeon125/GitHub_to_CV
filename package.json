@@ -1,5 +1,5 @@
 {
-  "name": "github-to-cv-poc",
+  "name": "github-to-cv",
   "version": "0.1.0",
   "private": true,
   "packageManager": "pnpm@10.18.3",
@@ -7,7 +7,10 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@radix-ui/react-collapsible": "^1.1.12",
@@ -35,6 +38,7 @@
     "@types/react-dom": "18.3.0",
     "eslint": "^8.57.1",
     "eslint-config-next": "14.2.5",
-    "typescript": "5.5.4"
+    "typescript": "5.5.4",
+    "vitest": "^4.1.8"
   }
 }

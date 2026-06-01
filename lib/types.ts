@@ -55,6 +55,8 @@ export type ActivityPattern = {
   consistency_score: number;
   commit_sample_size: number;
   activity_tags: string[];
+  // 야간/오전/주말 판정에 사용한 IANA 타임존 (UI 표기용)
+  timezone: string;
 };
 
 // repo별 LLM 출력 스키마 (명세서 그대로)
@@ -125,4 +127,6 @@ export type AnalyzeOptions = {
   useLlm: boolean;
   // LLM 호출 설정 (없으면 서버 기본 게이트웨이 사용)
   llmConfig?: LlmConfig | null;
+  // 활동 패턴 판정 기준 타임존 (IANA, 예: "Asia/Seoul"). 없으면 기본값 사용.
+  timezone?: string | null;
 };

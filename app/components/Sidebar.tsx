@@ -30,9 +30,26 @@ type Props = {
   onGuestGithubTokenChange: (value: string) => void;
   includePrivate: boolean;
   onIncludePrivateChange: (value: boolean) => void;
+  timezone: string;
+  onTimezoneChange: (value: string) => void;
   loading: boolean;
   onSubmit: () => void;
 };
+
+// 활동 시간대(야간/오전/주말) 판정 기준 타임존 프리셋.
+// 브라우저가 감지한 타임존이 목록에 없으면 런타임에 맨 앞에 추가한다.
+const TIMEZONE_PRESETS: ReadonlyArray<{ value: string; label: string }> = [
+  { value: "Asia/Seoul", label: "한국 (KST, UTC+9)" },
+  { value: "Asia/Tokyo", label: "일본 (JST, UTC+9)" },
+  { value: "Asia/Shanghai", label: "중국 (CST, UTC+8)" },
+  { value: "Asia/Singapore", label: "싱가포르 (UTC+8)" },
+  { value: "Asia/Kolkata", label: "인도 (IST, UTC+5:30)" },
+  { value: "Europe/London", label: "영국 (GMT/BST)" },
+  { value: "Europe/Berlin", label: "중부유럽 (CET/CEST)" },
+  { value: "America/New_York", label: "미 동부 (ET)" },
+  { value: "America/Los_Angeles", label: "미 서부 (PT)" },
+  { value: "UTC", label: "UTC" },
+];
 
 export default function Sidebar({
   username,
@@ -47,9 +64,16 @@ export default function Sidebar({
   onGuestGithubTokenChange,
   includePrivate,
   onIncludePrivateChange,
+  timezone,
+  onTimezoneChange,
   loading,
   onSubmit,
 }: Props) {
+  // 브라우저가 감지한 타임존이 프리셋에 없으면 옵션으로 추가해 선택 상태가 유지되게 한다.
+  const timezoneOptions =
+    timezone && !TIMEZONE_PRESETS.some((tz) => tz.value === timezone)
+      ? [{ value: timezone, label: `${timezone} (자동 감지)` }, ...TIMEZONE_PRESETS]
+      : TIMEZONE_PRESETS;
   // API key 가시성 토글 (마우스로 잠깐 확인할 수 있게)
   const [showApiKey, setShowApiKey] = useState(false);
   // 게스트 GitHub PAT 입력 섹션 펼침 여부
@@ -283,6 +307,27 @@ export default function Sidebar({
               입력한 토큰으로 인증된 호출(5000회/시간)을 사용합니다. 대표 repo 최대 5개까지 분석할 수 있습니다.
             </p>
           )}
+        </div>
+
+        <div>
+          <Label htmlFor="timezone" className="text-sm text-muted-foreground mb-2 block">
+            활동 시간대 기준
+          </Label>
+          <select
+            id="timezone"
+            value={timezone}
+            onChange={(e) => onTimezoneChange(e.target.value)}
+            className="w-full bg-input-background border border-border rounded-md px-3 py-2 text-sm text-foreground focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all"
+          >
+            {timezoneOptions.map((tz) => (
+              <option key={tz.value} value={tz.value}>
+                {tz.label}
+              </option>
+            ))}
+          </select>
+          <p className="mt-1 text-[11px] text-muted-foreground">
+            commit 시각을 이 타임존으로 환산해 야간/오전/주말 비율을 계산합니다.
+          </p>
         </div>
 
         <div className="flex items-center justify-between">

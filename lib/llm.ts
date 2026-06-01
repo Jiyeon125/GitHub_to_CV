@@ -233,7 +233,7 @@ export function buildRepoReportInputs(repos: AnalyzedRepo[]): RepoReportInput[] 
 // === stable serialization & seed ===
 // 객체 key 순서, 배열 순서를 가능한 한 결정적으로 만들기 위해 직접 작성한 직렬화.
 // 배열 순서가 의미를 가지는 경우(commit 순서 등)는 그대로 두고, key 순서만 알파벳 순으로 정렬한다.
-function stableStringify(value: unknown): string {
+export function stableStringify(value: unknown): string {
   if (value === null || typeof value !== "object") return JSON.stringify(value);
   if (Array.isArray(value)) {
     return `[${value.map(stableStringify).join(",")}]`;
@@ -244,7 +244,7 @@ function stableStringify(value: unknown): string {
 }
 
 // OpenAI seed 는 부호 있는 32-bit 정수 권장. 단순 djb2 변형으로 결정적 해시 생성.
-function deterministicSeed(stableInput: string, salt: string): number {
+export function deterministicSeed(stableInput: string, salt: string): number {
   let hash = 5381;
   const combined = `${salt}|${stableInput}`;
   for (let i = 0; i < combined.length; i++) {
@@ -492,7 +492,7 @@ async function callProvider(
 //   - ```json\n{...}\n```
 //   - "Here is the JSON:\n{...}"
 //   - {...} (정상)
-function tryParseJson<T>(text: string | null): T | null {
+export function tryParseJson<T>(text: string | null): T | null {
   if (!text) return null;
 
   const trimmed = text.trim();

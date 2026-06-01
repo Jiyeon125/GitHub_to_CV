@@ -5,6 +5,7 @@ import { ExternalLink, ChevronDown, Lock } from "lucide-react";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "./ui/collapsible";
 import { ReliabilityBadge } from "./ReliabilityBadge";
 import { TechChip } from "./TechChip";
+import CopyButton from "./CopyButton";
 import type { AnalyzedRepo } from "@/lib/types";
 
 function formatDate(value: string): string {
@@ -69,6 +70,13 @@ export default function RepoCard({ repo }: { repo: AnalyzedRepo }) {
         </div>
       )}
 
+      {llm && (
+        <p className="no-print text-[11px] text-muted-foreground/70 flex items-center gap-1.5">
+          <span aria-hidden>✨</span>
+          AI 생성 초안입니다. 제출 전 직접 검토·수정하세요.
+        </p>
+      )}
+
       {llm?.core_features && llm.core_features.length > 0 && (
         <div>
           <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
@@ -87,18 +95,24 @@ export default function RepoCard({ repo }: { repo: AnalyzedRepo }) {
 
       {llm?.portfolio_sentence && (
         <div className="border-l-4 border-primary bg-primary/5 pl-3 py-2">
-          <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">
-            포트폴리오 문장
-          </h4>
+          <div className="flex items-center justify-between gap-2 mb-1.5">
+            <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+              포트폴리오 문장
+            </h4>
+            <CopyButton text={llm.portfolio_sentence} />
+          </div>
           <p className="text-sm text-muted-foreground italic">{llm.portfolio_sentence}</p>
         </div>
       )}
 
       {llm?.resume_bullets && llm.resume_bullets.length > 0 && (
         <div>
-          <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
-            이력서 bullet
-          </h4>
+          <div className="flex items-center justify-between gap-2 mb-2">
+            <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+              이력서 bullet
+            </h4>
+            <CopyButton text={llm.resume_bullets.join("\n")} label="전체 복사" />
+          </div>
           <ul className="space-y-1.5">
             {llm.resume_bullets.map((bullet, i) => (
               <li key={i} className="text-sm text-muted-foreground flex items-start gap-2">
@@ -123,6 +137,9 @@ export default function RepoCard({ repo }: { repo: AnalyzedRepo }) {
             <ChevronDown className={`w-4 h-4 transition-transform ${questionsOpen ? "rotate-180" : ""}`} />
           </CollapsibleTrigger>
           <CollapsibleContent className="mt-2">
+            <div className="flex justify-end mb-1.5">
+              <CopyButton text={llm.interview_questions.join("\n")} label="전체 복사" />
+            </div>
             <ol className="space-y-2 list-decimal list-inside">
               {llm.interview_questions.map((q, i) => (
                 <li key={i} className="text-sm text-muted-foreground">{q}</li>

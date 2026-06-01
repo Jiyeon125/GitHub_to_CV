@@ -62,6 +62,8 @@ export default function Home() {
   // 메모리에만 보관 (localStorage 저장 X). 새로고침 시 자동 소실.
   const [guestGithubToken, setGuestGithubToken] = useState("");
   const [includePrivate, setIncludePrivate] = useState(false);
+  // 활동 패턴(야간/오전/주말) 판정 기준 타임존. 기본값은 브라우저 감지, 실패 시 Asia/Seoul.
+  const [timezone, setTimezone] = useState("Asia/Seoul");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<AnalyzeResponse | null>(null);
@@ -71,6 +73,16 @@ export default function Home() {
     // 로그인하면 게스트 토큰은 자동으로 비운다 (본인 OAuth token 으로 충분 + 혼선 방지).
     if (isAuthed) setGuestGithubToken("");
   }, [isAuthed]);
+
+  // 마운트 시 브라우저 타임존을 기본값으로 채운다.
+  useEffect(() => {
+    try {
+      const detected = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      if (detected) setTimezone(detected);
+    } catch {
+      // 감지 실패 시 기본값(Asia/Seoul) 유지
+    }
+  }, []);
 
   // 로그인 시 본인 계정 전용(self) / 미로그인 시 공개 분석 모드.
   // 다른 사용자를 분석하려면 로그아웃 필요.
@@ -92,6 +104,7 @@ export default function Home() {
           llmConfig: useLlm ? llmConfig : null,
           mode: effectiveMode,
           includePrivate: effectiveMode === "self" ? includePrivate : false,
+          timezone,
           // 게스트가 본인 토큰으로 호출 한도를 확장하길 원할 때만 전달.
           guestGithubToken:
             !isAuthed && guestGithubToken.trim().length > 0
@@ -116,7 +129,7 @@ export default function Home() {
     } finally {
       setLoading(false);
     }
-  }, [username, representativeCount, useLlm, llmConfig, effectiveMode, includePrivate, sessionLogin, isAuthed, guestGithubToken]);
+  }, [username, representativeCount, useLlm, llmConfig, effectiveMode, includePrivate, sessionLogin, isAuthed, guestGithubToken, timezone]);
 
   return (
     <div className="app-shell flex h-screen bg-background text-foreground overflow-hidden">
@@ -133,6 +146,8 @@ export default function Home() {
         onGuestGithubTokenChange={setGuestGithubToken}
         includePrivate={includePrivate}
         onIncludePrivateChange={setIncludePrivate}
+        timezone={timezone}
+        onTimezoneChange={setTimezone}
         loading={loading}
         onSubmit={runAnalyze}
       />

@@ -764,7 +764,7 @@ export default function PdfReportDocument({ data }: { data: AnalyzeResponse }) {
               <RadarScoreChart scores={data.domainScores} />
             </View>
             <View style={styles.column}>
-              <Text style={styles.subTitle}>활동 패턴</Text>
+              <Text style={styles.subTitle}>활동 패턴 ({data.activityPattern.timezone} 기준)</Text>
               <View style={styles.donutsRow}>
                 <CircularProgress
                   value={clamp01(data.activityPattern.night_ratio) * 100}

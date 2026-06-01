@@ -7,6 +7,7 @@ import ActivityPanel from "./ActivityPanel";
 import RepoCard from "./RepoCard";
 import { TagCard } from "./TagCard";
 import { WarningBanner } from "./WarningBanner";
+import CopyButton from "./CopyButton";
 
 type Props = {
   data: AnalyzeResponse;
@@ -73,6 +74,17 @@ export default function Dashboard({ data }: Props) {
           {data.llm?.headline || `${scopeLabel} 기반 개발 활동 추정 리포트`}
         </h2>
         <p className="text-sm text-muted-foreground leading-relaxed">{data.summary}</p>
+        {data.llm && (
+          <div className="no-print mt-3 flex items-center gap-2">
+            <CopyButton
+              text={`${data.llm.headline}\n\n${data.summary}`}
+              label="요약 복사"
+            />
+            <span className="text-[11px] text-muted-foreground/70">
+              ✨ AI 생성 초안 · 제출 전 검토하세요.
+            </span>
+          </div>
+        )}
       </div>
 
       {/* Warnings */}

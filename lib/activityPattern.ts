@@ -1,21 +1,59 @@
 // 활동 패턴 분석
 // - 대표 repo의 최근 commit timestamp만으로 계산하므로 표본이 적을 수 있다.
 // - 결과는 "단정"이 아니라 "경향" 으로 표현한다 (UI 텍스트는 별도).
-// - commit timestamp는 GitHub이 UTC ISO 문자열로 돌려준다. 한국 사용자 대상 서비스이므로
-//   KST(UTC+9) 기준으로 시간대를 환산해 야간/오전/주말을 판단한다.
+// - commit timestamp는 GitHub이 UTC ISO 문자열로 돌려준다. 사용자가 고른 타임존
+//   (기본 Asia/Seoul) 기준으로 시간대를 환산해 야간/오전/주말을 판단한다.
+// - Intl.DateTimeFormat 로 인스턴스별 오프셋을 구하므로 DST(서머타임)도 반영된다.
 
 import type { ActivityPattern, RepoCommit } from "./types";
 
-const KST_OFFSET_HOURS = 9;
+export const DEFAULT_TIMEZONE = "Asia/Seoul";
 
-// UTC Date 객체를 KST 기준 hour/day 로 변환
-function toKstParts(d: Date): { hour: number; day: number } {
-  // getTime() 은 UTC ms. 여기에 KST offset 을 더한 새 시각의 UTC 필드를 읽으면
-  // 결과적으로 KST 시각의 hour/day 와 같아진다.
-  const shifted = new Date(d.getTime() + KST_OFFSET_HOURS * 60 * 60 * 1000);
-  return {
-    hour: shifted.getUTCHours(),
-    day: shifted.getUTCDay(),
+// 주어진 IANA 타임존으로 UTC Date 를 "벽시계(wall clock)" 시각으로 환산하는 함수를 만든다.
+// 반환된 Date 는 getUTC* 로 읽으면 해당 타임존의 로컬 시각/요일/날짜를 돌려준다.
+function makeZoneShifter(timeZone: string): (d: Date) => Date {
+  let dtf: Intl.DateTimeFormat;
+  try {
+    dtf = new Intl.DateTimeFormat("en-US", {
+      timeZone,
+      hourCycle: "h23",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    });
+  } catch {
+    // 잘못된 타임존 문자열이면 기본값으로 안전 복구.
+    dtf = new Intl.DateTimeFormat("en-US", {
+      timeZone: DEFAULT_TIMEZONE,
+      hourCycle: "h23",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    });
+  }
+
+  return (d: Date) => {
+    const parts = dtf.formatToParts(d);
+    const map: Record<string, number> = {};
+    for (const p of parts) {
+      if (p.type !== "literal") map[p.type] = Number(p.value);
+    }
+    // 타임존 로컬 시각을 UTC 필드로 옮겨 담은 Date.
+    const asUtc = Date.UTC(
+      map.year ?? 1970,
+      (map.month ?? 1) - 1,
+      map.day ?? 1,
+      map.hour ?? 0,
+      map.minute ?? 0,
+      map.second ?? 0,
+    );
+    return new Date(asUtc);
   };
 }
 
@@ -29,7 +67,7 @@ function ratio(num: number, denom: number): number {
 // 기존에는 "활동일/관측일(spanDays)" 단일 비율을 사용했는데,
 // 관측 구간이 길고 커밋이 듬성듬성인 사용자에게 과도하게 낮게 나오는 문제가 있었다.
 // 현재는 최근 구간에서 "주 단위 분산"을 중심으로 계산해 점수를 완화한다.
-function calculateConsistency(commits: RepoCommit[]): number {
+function calculateConsistency(commits: RepoCommit[], shift: (d: Date) => Date): number {
   if (commits.length === 0) return 0;
 
   const dates = commits
@@ -53,18 +91,18 @@ function calculateConsistency(commits: RepoCommit[]): number {
     Math.ceil((latest - earliest) / (1000 * 60 * 60 * 24)) + 1,
   );
 
-  // 활동한 고유 날짜 수 (KST 기준 날짜로 묶기)
+  // 활동한 고유 날짜 수 (선택 타임존 기준 날짜로 묶기)
   const uniqueDates = new Set(
     targetDates.map((d) => {
-      const shifted = new Date(d.getTime() + KST_OFFSET_HOURS * 60 * 60 * 1000);
+      const shifted = shift(d);
       return `${shifted.getUTCFullYear()}-${shifted.getUTCMonth()}-${shifted.getUTCDate()}`;
     }),
   );
 
-  // 활동한 고유 주 수 (KST 기준)
+  // 활동한 고유 주 수 (선택 타임존 기준)
   const uniqueWeeks = new Set(
     targetDates.map((d) => {
-      const shifted = new Date(d.getTime() + KST_OFFSET_HOURS * 60 * 60 * 1000);
+      const shifted = shift(d);
       const dayIndex = Math.floor(shifted.getTime() / (24 * 60 * 60 * 1000));
       return Math.floor(dayIndex / 7);
     }),
@@ -83,7 +121,7 @@ function calculateConsistency(commits: RepoCommit[]): number {
 }
 
 function deriveActivityTags(
-  pattern: Omit<ActivityPattern, "activity_tags">,
+  pattern: Omit<ActivityPattern, "activity_tags" | "timezone">,
   hasEnoughSample: boolean,
   hasRecentActivity: boolean,
 ): string[] {
@@ -110,7 +148,12 @@ function deriveActivityTags(
 }
 
 // 여러 repo의 commit 을 묶어 사용자 단위 패턴 산출
-export function analyzeActivityPattern(commitsByRepo: RepoCommit[][]): ActivityPattern {
+// - timeZone: IANA 타임존 문자열 (기본 Asia/Seoul). 야간/오전/주말 판정 기준.
+export function analyzeActivityPattern(
+  commitsByRepo: RepoCommit[][],
+  timeZone: string = DEFAULT_TIMEZONE,
+): ActivityPattern {
+  const shift = makeZoneShifter(timeZone);
   const allCommits = commitsByRepo.flat();
   const valid = allCommits.filter((c) => !Number.isNaN(new Date(c.authorDate).getTime()));
 
@@ -122,6 +165,7 @@ export function analyzeActivityPattern(commitsByRepo: RepoCommit[][]): ActivityP
       consistency_score: 0,
       commit_sample_size: 0,
       activity_tags: ["commit 표본 부족"],
+      timezone: timeZone,
     };
   }
 
@@ -130,12 +174,13 @@ export function analyzeActivityPattern(commitsByRepo: RepoCommit[][]): ActivityP
   let weekend = 0;
 
   for (const commit of valid) {
-    const d = new Date(commit.authorDate);
-    const { hour, day } = toKstParts(d); // KST 기준 시간대로 환산
+    const shifted = shift(new Date(commit.authorDate));
+    const hour = shifted.getUTCHours();
+    const day = shifted.getUTCDay();
 
-    // 야간: 21시 ~ 03시 (KST)
+    // 야간: 21시 ~ 03시
     if (hour >= 21 || hour <= 3) night += 1;
-    // 오전: 05시 ~ 11시 (KST)
+    // 오전: 05시 ~ 11시
     if (hour >= 5 && hour <= 11) morning += 1;
     // 주말: 토(6), 일(0)
     if (day === 0 || day === 6) weekend += 1;
@@ -146,7 +191,7 @@ export function analyzeActivityPattern(commitsByRepo: RepoCommit[][]): ActivityP
     night_ratio: ratio(night, total),
     morning_ratio: ratio(morning, total),
     weekend_ratio: ratio(weekend, total),
-    consistency_score: calculateConsistency(valid),
+    consistency_score: calculateConsistency(valid, shift),
     commit_sample_size: total,
   };
 
@@ -157,5 +202,5 @@ export function analyzeActivityPattern(commitsByRepo: RepoCommit[][]): ActivityP
 
   const tags = deriveActivityTags(partial, total >= 5, hasRecentActivity);
 
-  return { ...partial, activity_tags: tags };
+  return { ...partial, activity_tags: tags, timezone: timeZone };
 }

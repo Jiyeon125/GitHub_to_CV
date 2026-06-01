@@ -32,6 +32,11 @@ Desktop.ini
 *.swo
 *~
 
+# AI agent / Cursor skill tooling (구동용 스킬, 프로젝트 코드 아님)
+.agents/
+.claude/
+skills-lock.json
+
 # Test / coverage
 coverage
 .nyc_output
