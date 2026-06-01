@@ -23,6 +23,7 @@ import type {
   DomainScores,
   ReadmeReliabilityLevel,
 } from "@/lib/types";
+import { groupTechStack, techStackWithoutLanguages } from "@/lib/techStack";
 
 Font.register({
   family: "NotoSansKR",
@@ -352,6 +353,38 @@ const styles = StyleSheet.create({
     fontSize: 7.5,
     paddingVertical: 2,
     paddingHorizontal: 6,
+    borderRadius: 4,
+    backgroundColor: COLORS.surface,
+    color: COLORS.textPrimary,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  // 범주별 언어·스택 행: 라벨(고정폭) + 칩 영역(flex-1) 분리 → 줄바꿈 시 칩이 라벨 아래로 안 떨어짐
+  repoStackSection: {
+    marginBottom: 8,
+  },
+  repoStackRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    marginBottom: 3,
+  },
+  repoStackLabel: {
+    width: 52,
+    fontSize: 7,
+    color: COLORS.textMuted,
+    paddingTop: 2,
+    textTransform: "uppercase",
+  },
+  repoStackChips: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    flex: 1,
+    gap: 3,
+  },
+  langChip: {
+    fontSize: 7.5,
+    paddingVertical: 2,
+    paddingHorizontal: 5,
     borderRadius: 4,
     backgroundColor: COLORS.surface,
     color: COLORS.textPrimary,
@@ -854,12 +887,36 @@ export default function PdfReportDocument({ data }: { data: AnalyzeResponse }) {
                   repo.description ||
                   "설명이 제공되지 않은 저장소입니다."}
               </Text>
-              {repo.techStack.length > 0 && (
-                <View style={styles.chipRow}>
-                  {repo.techStack.slice(0, PDF_CONFIG.maxRepoTechChips).map((tech) => (
-                    <Text key={tech} style={styles.chip}>
-                      {tech}
-                    </Text>
+              {/* 언어 비중 행 */}
+              {repo.languages && repo.languages.length > 0 && (
+                <View style={styles.repoStackRow}>
+                  <Text style={styles.repoStackLabel}>언어</Text>
+                  <View style={styles.repoStackChips}>
+                    {repo.languages.slice(0, 6).map((lang) => {
+                      const pct = Math.round(lang.share * 100);
+                      return (
+                        <Text key={lang.name} style={styles.langChip}>
+                          {lang.name} {pct < 1 ? "<1%" : `${pct}%`}
+                        </Text>
+                      );
+                    })}
+                  </View>
+                </View>
+              )}
+              {/* 범주별 기술 스택 행 */}
+              {techStackWithoutLanguages(repo.techStack).length > 0 && (
+                <View style={{ marginBottom: 8 }}>
+                  {groupTechStack(techStackWithoutLanguages(repo.techStack).slice(0, 12)).map((group) => (
+                    <View key={group.category} style={styles.repoStackRow}>
+                      <Text style={styles.repoStackLabel}>{group.category}</Text>
+                      <View style={styles.repoStackChips}>
+                        {group.items.map((tech) => (
+                          <Text key={tech} style={styles.chip}>
+                            {tech}
+                          </Text>
+                        ))}
+                      </View>
+                    </View>
                   ))}
                 </View>
               )}
