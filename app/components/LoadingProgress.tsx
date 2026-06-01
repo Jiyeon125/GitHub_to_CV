@@ -23,7 +23,7 @@ const STAGE_LABELS: Record<AnalyzeStage, string> = {
 // - 단계 라벨/순서는 실제 파이프라인과 동일하므로 "표시 단계 ≠ 실제 단계" 문제가 없다.
 // - 진행바는 각 단계의 기준 진행률에서 다음 단계 직전까지 완만히 차오르게 해
 //   긴 단계(deep/LLM)에서도 멈춰 보이지 않도록 한다(완료 전까지 100% 도달 안 함).
-export default function LoadingProgress({ useLlm, representativeCount = 3, stage }: Props) {
+export default function LoadingProgress({ useLlm, stage }: Props) {
   const order = useMemo<AnalyzeStage[]>(
     () =>
       useLlm
@@ -55,11 +55,6 @@ export default function LoadingProgress({ useLlm, representativeCount = 3, stage
 
   const progress = Math.round(displayPct);
 
-  // 안내용 대략 소요 시간(진행바와 무관). 대표 repo 수 / LLM 사용 여부로 러프하게 추정.
-  const estSeconds = 8 + 2 * Math.max(1, representativeCount) + (useLlm ? 9 : 0);
-  const totalMin = Math.round(estSeconds * 0.7);
-  const totalMax = Math.round(estSeconds * 1.8);
-
   return (
     <div className="flex items-center justify-center min-h-[400px]">
       <div className="w-full max-w-sm">
@@ -89,7 +84,7 @@ export default function LoadingProgress({ useLlm, representativeCount = 3, stage
         </div>
 
         <p className="text-xs text-muted-foreground mt-6">
-          분석 완료까지 보통 {totalMin}~{totalMax}초 정도 소요됩니다. 분석 대상이 많을 경우 더 걸릴 수 있습니다.
+          분석 완료까지 보통 20~50초 정도 소요됩니다. 분석 대상이 많을 경우 더 걸릴 수 있습니다.
         </p>
       </div>
     </div>

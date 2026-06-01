@@ -205,11 +205,17 @@ export default function Sidebar({
                 <div className="flex gap-1">
                   <input
                     id="guest-gh-token"
+                    name="gh-pat"
                     type={showGuestToken ? "text" : "password"}
                     value={guestGithubToken ?? ""}
                     onChange={(e) => onGuestGithubTokenChange(e.target.value)}
                     placeholder="ghp_..."
-                    autoComplete="off"
+                    // password 타입은 저장된 비밀번호 자동완성을 부른다.
+                    // new-password 로 선언해 자동완성/자격증명 저장을 막고, 비번 매니저도 무시시킨다.
+                    autoComplete="new-password"
+                    data-1p-ignore="true"
+                    data-lpignore="true"
+                    data-form-type="other"
                     spellCheck={false}
                     className="flex-1 bg-input-background border border-border rounded-md px-2 py-1.5 text-[11px] font-mono text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all"
                   />
@@ -239,15 +245,21 @@ export default function Sidebar({
         )}
 
         <div>
-          <Label htmlFor="username" className="text-sm text-muted-foreground mb-2 block">
+          <Label htmlFor="gh-handle" className="text-sm text-muted-foreground mb-2 block">
             GitHub username
           </Label>
           <input
-            id="username"
+            id="gh-handle"
+            name="gh-handle"
             value={effectiveMode === "self" ? sessionLogin : username}
             onChange={(e) => onUsernameChange(e.target.value)}
             placeholder={effectiveMode === "self" ? "@내계정" : "GitHub username 입력"}
+            // "username" 이라는 식별자/이름은 브라우저가 로그인 아이디 필드로 인식해
+            // 아이디/비밀번호 자동완성을 띄운다. id/name 을 중립화하고 비번 매니저 무시 속성을 단다.
             autoComplete="off"
+            data-1p-ignore="true"
+            data-lpignore="true"
+            data-form-type="other"
             spellCheck={false}
             aria-label="GitHub username"
             disabled={effectiveMode === "self"}
