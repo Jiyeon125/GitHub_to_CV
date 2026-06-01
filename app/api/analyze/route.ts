@@ -9,7 +9,7 @@ import { getToken } from "next-auth/jwt";
 import { runAnalyze } from "@/lib/analyze";
 import { GitHubApiError } from "@/lib/github";
 import { buildAnalyzeCacheKey, getCached, setCached } from "@/lib/cache";
-import type { AnalyzeResponse, LlmConfig } from "@/lib/types";
+import type { AnalyzeResponse, AnalyzeStreamEvent, LlmConfig } from "@/lib/types";
 
 const GITHUB_USERNAME_REGEX = /^(?!-)(?!.*--)[A-Za-z0-9-]{1,39}(?<!-)$/;
 // 사용자가 입력하는 GitHub PAT 형식 정규식.
@@ -260,6 +260,7 @@ export async function POST(request: NextRequest) {
     })}:${llmTag}${guestTokenTag}:tz=${timezone ?? "default"}`;
     const cached = getCached<AnalyzeResponse>(cacheKey);
     if (cached) {
+      // 캐시 hit 은 즉시 JSON 으로 응답 (스트리밍 불필요). 클라이언트는 Content-Type 으로 구분한다.
       return NextResponse.json({ ...cached, cached: true });
     }
 
@@ -268,17 +269,51 @@ export async function POST(request: NextRequest) {
     const githubAccessToken =
       mode === "self" ? sessionAccessToken : hasGuestToken ? guestGithubToken : null;
 
-    const payload = await runAnalyze(
-      { username, representativeCount: clampedRepresentativeCount, useLlm, llmConfig, timezone },
-      {
-        mode,
-        includePrivate,
-        userAccessToken: githubAccessToken,
+    // === 진행 상황 스트리밍 (NDJSON) ===
+    // 각 줄이 하나의 이벤트(progress / done / error)다. 분석이 단계별로 진행되는 동안
+    // 서버가 실제 단계를 push 해 로딩 UI 가 실제와 맞도록 한다.
+    // 검증/rate limit/캐시 에러는 위에서 이미 JSON(상태코드 포함)으로 처리됐고,
+    // runAnalyze 내부 오류는 여기서 error 이벤트로 흘려보낸다.
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream<Uint8Array>({
+      async start(controller) {
+        const send = (event: AnalyzeStreamEvent) =>
+          controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
+        try {
+          const payload = await runAnalyze(
+            { username, representativeCount: clampedRepresentativeCount, useLlm, llmConfig, timezone },
+            {
+              mode,
+              includePrivate,
+              userAccessToken: githubAccessToken,
+              onProgress: (stage) => send({ type: "progress", stage }),
+            },
+          );
+          setCached(cacheKey, payload);
+          send({ type: "done", payload });
+        } catch (error) {
+          let message = "예상치 못한 서버 오류가 발생했습니다.";
+          if (error instanceof ApiError || error instanceof GitHubApiError) {
+            console.error(`[analyze] ${error.logMessage}`);
+            message = error.publicMessage;
+          } else {
+            console.error("[analyze] Unexpected server error", error);
+          }
+          send({ type: "error", error: message });
+        } finally {
+          controller.close();
+        }
       },
-    );
-    setCached(cacheKey, payload);
+    });
 
-    return NextResponse.json(payload);
+    return new Response(stream, {
+      headers: {
+        "Content-Type": "application/x-ndjson; charset=utf-8",
+        "Cache-Control": "no-store, no-transform",
+        // 일부 프록시(예: nginx)에서 스트리밍이 버퍼링되지 않도록.
+        "X-Accel-Buffering": "no",
+      },
+    });
   } catch (error) {
     if (error instanceof ApiError) {
       console.error(`[analyze] ${error.logMessage}`);

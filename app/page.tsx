@@ -7,7 +7,7 @@ import { useSession } from "next-auth/react";
 import Sidebar from "./components/Sidebar";
 import Dashboard from "./components/Dashboard";
 import LoadingProgress from "./components/LoadingProgress";
-import type { AnalyzeResponse, LlmConfig } from "@/lib/types";
+import type { AnalyzeResponse, AnalyzeStage, AnalyzeStreamEvent, LlmConfig } from "@/lib/types";
 
 // LLM 설정 기본값: 가장 안정적인 GPT 프리셋
 const DEFAULT_LLM_CONFIG: LlmConfig = {
@@ -67,6 +67,8 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<AnalyzeResponse | null>(null);
+  // 서버 스트리밍으로 받은 실제 진행 단계 (null = 아직 시작 전/캐시 응답)
+  const [progressStage, setProgressStage] = useState<AnalyzeStage | null>(null);
 
   useEffect(() => {
     if (!isAuthed) setIncludePrivate(false);
@@ -92,6 +94,7 @@ export default function Home() {
     setLoading(true);
     setError(null);
     setResult(null);
+    setProgressStage(null);
 
     try {
       const response = await fetch("/api/analyze", {
@@ -113,13 +116,56 @@ export default function Home() {
         }),
       });
 
-      const data = await response.json();
+      // 검증/rate limit/캐시 응답은 JSON, 실제 분석은 NDJSON 스트림으로 온다.
+      const contentType = response.headers.get("content-type") ?? "";
 
       if (!response.ok) {
-        throw new Error(data.error ?? "분석 요청에 실패했습니다.");
+        const data = await response.json().catch(() => null);
+        throw new Error(data?.error ?? "분석 요청에 실패했습니다.");
       }
 
-      setResult(data as AnalyzeResponse);
+      if (contentType.includes("application/x-ndjson") && response.body) {
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        let finalPayload: AnalyzeResponse | null = null;
+
+        const handleLine = (line: string) => {
+          const trimmed = line.trim();
+          if (!trimmed) return;
+          const event = JSON.parse(trimmed) as AnalyzeStreamEvent;
+          if (event.type === "progress") {
+            setProgressStage(event.stage);
+          } else if (event.type === "done") {
+            finalPayload = event.payload;
+          } else if (event.type === "error") {
+            throw new Error(event.error);
+          }
+        };
+
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          let newlineIndex: number;
+          while ((newlineIndex = buffer.indexOf("\n")) >= 0) {
+            const line = buffer.slice(0, newlineIndex);
+            buffer = buffer.slice(newlineIndex + 1);
+            handleLine(line);
+          }
+        }
+        // 스트림 종료 후 남은 버퍼 처리
+        if (buffer.trim()) handleLine(buffer);
+
+        if (!finalPayload) {
+          throw new Error("분석 결과를 받지 못했습니다.");
+        }
+        setResult(finalPayload);
+      } else {
+        // 캐시 hit 등 JSON 단발 응답
+        const data = (await response.json()) as AnalyzeResponse;
+        setResult(data);
+      }
     } catch (submitError) {
       setError(
         submitError instanceof Error
@@ -128,6 +174,7 @@ export default function Home() {
       );
     } finally {
       setLoading(false);
+      setProgressStage(null);
     }
   }, [username, representativeCount, useLlm, llmConfig, effectiveMode, includePrivate, sessionLogin, isAuthed, guestGithubToken, timezone]);
 
@@ -185,7 +232,13 @@ export default function Home() {
 
         {/* Main Content */}
         <div className="app-scroll flex-1 overflow-y-auto">
-          {loading && <LoadingProgress useLlm={useLlm} representativeCount={representativeCount} />}
+          {loading && (
+            <LoadingProgress
+              useLlm={useLlm}
+              representativeCount={representativeCount}
+              stage={progressStage}
+            />
+          )}
 
           {error && !loading && (
             <div className="flex items-center justify-center min-h-[400px] p-6">

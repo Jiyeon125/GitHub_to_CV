@@ -44,6 +44,7 @@ import {
 import type {
   AnalyzeOptions,
   AnalyzeResponse,
+  AnalyzeStage,
   AnalyzedRepo,
   DeepRepoData,
   GitHubRepo,
@@ -191,6 +192,8 @@ export type AnalyzeContext = {
   mode: "self" | "public";
   // self 모드에서 private repo 까지 분석할지 (사용자 동의 체크박스 결과)
   includePrivate?: boolean;
+  // 진행 단계 콜백(옵션). 스트리밍 응답에서 각 단계 "시작 시점"에 호출해 로딩 UI 를 실제와 맞춘다.
+  onProgress?: (stage: AnalyzeStage) => void;
 };
 
 // === 메인 진입점 ===
@@ -205,6 +208,10 @@ export async function runAnalyze(
   const auth: GitHubAuth | undefined = context.userAccessToken
     ? { userAccessToken: context.userAccessToken }
     : undefined;
+
+  const reportProgress = (stage: AnalyzeStage) => context.onProgress?.(stage);
+
+  reportProgress("repos");
 
   let profile;
   try {
@@ -312,6 +319,8 @@ export async function runAnalyze(
     warnings.push("fork 저장소만 확인되어 분석 신뢰도가 낮을 수 있습니다.");
   }
 
+  reportProgress("select");
+
   // === 대표 repo 선정 ===
   // 1) 규칙 점수로 전체 풀 정렬 → 2) 점수 상위 K 개를 후보 풀로 사용(다양성은 LLM 프롬프트가 반영) →
   // 3) LLM 사용 가능하면 후보 메타(+인증 시 README 앞부분)를 보내 N 개를 리랭킹 →
@@ -389,6 +398,8 @@ export async function runAnalyze(
     candidates = candidatePool.slice(0, representativeCount);
   }
 
+  reportProgress("deep");
+
   // === 2차 deep collection (대표 repo에 한해 병렬 수집) ===
   const deepResults = await Promise.all(
     candidates.map(async (repo) => {
@@ -427,6 +438,8 @@ export async function runAnalyze(
 
   // refine 후 score가 바뀌므로 한 번 더 정렬
   selectedRepos.sort((a, b) => b.score - a.score);
+
+  reportProgress("analyze");
 
   // === 도메인 점수 (사용자 전체) ===
   // 대표 repo deep 신호 + 전체 공개 repo shallow 신호(언어 기반) 를 합쳐 정규화한다.
@@ -474,6 +487,7 @@ export async function runAnalyze(
   }
 
   if (llmAvailable) {
+    reportProgress("llm");
     try {
       const llmScopeLabel =
         context.mode === "self" && context.includePrivate

@@ -1,55 +1,64 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import type { AnalyzeStage } from "@/lib/types";
 import { StepNode } from "./StepNode";
 
-type Props = { useLlm: boolean; representativeCount?: number };
+type Props = {
+  useLlm: boolean;
+  representativeCount?: number;
+  // 서버 스트리밍으로 받은 실제 진행 단계. null 이면 아직 첫 이벤트 전(시작 직후).
+  stage?: AnalyzeStage | null;
+};
 
-// 진행 단계와 "대략적 소요 비중(초)".
-// - 서버가 실제 진행 이벤트를 push 하지 않으므로 완벽한 동기화는 아니지만,
-//   각 단계의 실제 파이프라인 비중에 맞춰 가변 시간을 줘서 체감 정확도를 높인다.
-// - 심층 분석 단계는 대표 repo 개수에 비례해 늘어난다(각 repo 당 GitHub 다중 호출).
-export default function LoadingProgress({ useLlm, representativeCount = 3 }: Props) {
-  const steps = useMemo(() => {
-    const deepSeconds = 3 + 1.2 * Math.max(1, representativeCount);
-    const head = [
-      { label: "저장소 목록 수집 중...", seconds: 3 },
-      { label: "대표 저장소 선정 중...", seconds: 2 },
-      { label: "구조 · commit 심층 분석 중...", seconds: deepSeconds },
-    ];
-    const tail = { label: "결과 조합 중...", seconds: 3 };
-    return useLlm
-      ? [...head, { label: "LLM 요약 생성 중...", seconds: 9 }, tail]
-      : [...head, tail];
-  }, [useLlm, representativeCount]);
+const STAGE_LABELS: Record<AnalyzeStage, string> = {
+  repos: "저장소 목록 수집 중...",
+  select: "대표 저장소 선정 중...",
+  deep: "구조 · commit 심층 분석 중...",
+  analyze: "분야 점수 · 활동 패턴 분석 중...",
+  llm: "LLM 요약 생성 중...",
+};
 
-  const [currentStep, setCurrentStep] = useState(0);
+// 진행 단계는 서버가 실제로 push 하는 단계(stage)에 1:1 로 매핑된다.
+// - 단계 라벨/순서는 실제 파이프라인과 동일하므로 "표시 단계 ≠ 실제 단계" 문제가 없다.
+// - 진행바는 각 단계의 기준 진행률에서 다음 단계 직전까지 완만히 차오르게 해
+//   긴 단계(deep/LLM)에서도 멈춰 보이지 않도록 한다(완료 전까지 100% 도달 안 함).
+export default function LoadingProgress({ useLlm, representativeCount = 3, stage }: Props) {
+  const order = useMemo<AnalyzeStage[]>(
+    () =>
+      useLlm
+        ? ["repos", "select", "deep", "analyze", "llm"]
+        : ["repos", "select", "deep", "analyze"],
+    [useLlm],
+  );
 
+  const currentIndex = stage ? Math.max(0, order.indexOf(stage)) : 0;
+
+  // 마지막 단계도 (order.length+1) 분모로 나눠 100% 미만에서 대기 → "가짜 100%" 방지.
+  const stageFloor = ((currentIndex + 1) / (order.length + 1)) * 100;
+  const stageCeil = ((currentIndex + 2) / (order.length + 1)) * 100 - 3;
+
+  const [displayPct, setDisplayPct] = useState(stageFloor);
+
+  // 단계가 올라가면 진행바를 그 단계의 기준값까지 끌어올린다(되돌아가지 않음).
   useEffect(() => {
-    setCurrentStep(0);
-  }, [steps.length]);
+    setDisplayPct((prev) => Math.max(prev, stageFloor));
+  }, [stageFloor]);
 
+  // 같은 단계가 길어질 때 다음 단계 직전까지 천천히 차오르게 한다.
   useEffect(() => {
-    if (currentStep >= steps.length - 1) return;
-    const ms = (steps[currentStep]?.seconds ?? 4) * 1000;
-    const timer = window.setTimeout(() => {
-      setCurrentStep((prev) => Math.min(prev + 1, steps.length - 1));
-    }, ms);
-    return () => window.clearTimeout(timer);
-  }, [currentStep, steps]);
+    const id = window.setInterval(() => {
+      setDisplayPct((prev) => (prev < stageCeil ? Math.min(stageCeil, prev + 0.6) : prev));
+    }, 400);
+    return () => window.clearInterval(id);
+  }, [stageCeil]);
 
-  const totalSeconds = steps.reduce((sum, s) => sum + s.seconds, 0);
-  const elapsedSeconds = steps
-    .slice(0, currentStep)
-    .reduce((sum, s) => sum + s.seconds, 0);
-  const isLastStep = currentStep >= steps.length - 1;
-  // 마지막 단계는 완료(컴포넌트 unmount) 전까지 92% 에서 대기시켜 "가짜 100%"를 피한다.
-  const progress = isLastStep
-    ? 92
-    : Math.round((elapsedSeconds / totalSeconds) * 100);
+  const progress = Math.round(displayPct);
 
-  const totalMin = Math.round(totalSeconds * 0.8);
-  const totalMax = Math.round(totalSeconds * 1.6);
+  // 안내용 대략 소요 시간(진행바와 무관). 대표 repo 수 / LLM 사용 여부로 러프하게 추정.
+  const estSeconds = 8 + 2 * Math.max(1, representativeCount) + (useLlm ? 9 : 0);
+  const totalMin = Math.round(estSeconds * 0.7);
+  const totalMax = Math.round(estSeconds * 1.8);
 
   return (
     <div className="flex items-center justify-center min-h-[400px]">
@@ -69,11 +78,11 @@ export default function LoadingProgress({ useLlm, representativeCount = 3 }: Pro
         <div className="relative pl-4">
           <div className="absolute left-[4px] top-[5px] bottom-[5px] w-px bg-border" />
           <div className="flex flex-col gap-5">
-            {steps.map((step, i) => (
+            {order.map((key, i) => (
               <StepNode
-                key={step.label}
-                status={i < currentStep ? "completed" : i === currentStep ? "active" : "pending"}
-                label={step.label}
+                key={key}
+                status={i < currentIndex ? "completed" : i === currentIndex ? "active" : "pending"}
+                label={STAGE_LABELS[key]}
               />
             ))}
           </div>

@@ -131,3 +131,13 @@ export type AnalyzeOptions = {
   // 활동 패턴 판정 기준 타임존 (IANA, 예: "Asia/Seoul"). 없으면 기본값 사용.
   timezone?: string | null;
 };
+
+// 분석 파이프라인의 진행 단계. 서버가 스트리밍으로 push 하고 로딩 UI 가 실제 단계를 표시한다.
+// (각 단계 "시작 시점"에 emit 된다)
+export type AnalyzeStage = "repos" | "select" | "deep" | "analyze" | "llm";
+
+// /api/analyze 스트리밍 응답의 NDJSON 이벤트 (한 줄 = 한 이벤트).
+export type AnalyzeStreamEvent =
+  | { type: "progress"; stage: AnalyzeStage }
+  | { type: "done"; payload: AnalyzeResponse }
+  | { type: "error"; error: string };
