@@ -34,7 +34,7 @@ GitHub에는 개발 활동 정보가 풍부하지만, 취업 준비생이나 학
 - 분석 진행 상태를 서버가 **NDJSON 스트리밍**으로 실시간 push → 로딩 UI 단계가 실제 파이프라인 단계와 일치
 - SVG 6축 레이더 차트, 기술 스택 분포 막대, 활동 패턴 패널
 - README / 분석 신뢰도 badge, 경고 박스
-- PDF 저장 / 브라우저 인쇄형 출력 (`@media print`)
+- PDF 다운로드 — `@react-pdf/renderer` 로 클라이언트에서 벡터 PDF 문서를 직접 생성해 내려받기 (레이더·막대·도넛 차트까지 SVG 로 PDF 안에 그려 넣고 한글 폰트 임베드, 별도 PDF 서버 불필요)
 - in-memory TTL 캐시 (10분) — 동일 입력 재분석 시 GitHub API 호출 비용 절감
 
 ## 로그인 상태별 동작 차이
@@ -68,6 +68,7 @@ GitHub에는 개발 활동 정보가 풍부하지만, 취업 준비생이나 학
 - **External API**: GitHub REST API v3 (users, repos, readme, git tree, languages, commits, contents) — 로그인 사용자는 OAuth access token, 그 외에는 `GITHUB_TOKEN` 또는 미인증 호출
 - **LLM**: 숙명여자대학교 [API Gateway (Mindlogic factchat)](https://docs.mindlogic.ai/docs/sookmyung/gateway/getting-started/overview) — OpenAI 호환 Chat Completions 형식, 단일 키로 OpenAI / Claude / Gemini 모델에 접근. 사이드바 기본 선택값은 GPT 프리셋(`gpt-5.4`), 프리셋별 모델 ID 는 env 로 교체 가능
 - **Visualization**: 외부 차트 라이브러리 없이 자체 작성한 SVG 레이더 + 막대 차트
+- **PDF**: `@react-pdf/renderer` 로 클라이언트에서 벡터 PDF 문서 생성 (차트도 PDF용 SVG 로 재작성, NotoSansKR 폰트 임베드). 서버/외부 렌더러 없이 브라우저에서 바로 다운로드
 - **Cache / Rate limit**: 프로세스 메모리(in-memory) 기반 TTL 캐시 + IP rate limit (별도 DB 없이 동작)
 - **Test / CI**: Vitest 단위 테스트 + GitHub Actions (`lint → typecheck → test → build`) + Dependabot
 - **Deployment**: Vercel (정적/서버리스), Node.js LTS
@@ -111,7 +112,7 @@ GitHub에는 개발 활동 정보가 풍부하지만, 취업 준비생이나 학
         ├─ headline / summary / 경고 / 태그
         ├─ 레이더 / 기술 스택 / 활동 패턴
         └─ 대표 repo 카드 (포트폴리오 문장 / 이력서 bullet / 면접 질문)
-  └─► [PDF로 저장 / 인쇄] → window.print() + @media print
+  └─► [PDF 파일 다운로드] → @react-pdf/renderer 로 벡터 PDF 문서 생성 (PdfDownloadButton → PdfReportDocument, 차트 포함) 후 클라이언트에서 바로 다운로드
 ```
 
 ## 대표 repo 선정 기준
@@ -193,7 +194,8 @@ app/
   api/analyze/route.ts          # 입력 검증 + rate limit + 캐시 + NextAuth 세션 검증
   api/auth/[...nextauth]/route.ts  # NextAuth App Router 핸들러
   components/                   # Sidebar, Dashboard, RadarChart, Panels, RepoCard, Badges, LoadingProgress
-  globals.css                   # 화면 + 인쇄 스타일
+                                #  + PdfDownloadButton (PDFDownloadLink) / PdfReportDocument (@react-pdf/renderer 문서)
+  globals.css                   # 화면 스타일 (+ 브라우저 인쇄 fallback @media print)
   layout.tsx, page.tsx
   providers.tsx                 # client SessionProvider 래퍼
 lib/
@@ -376,7 +378,7 @@ pnpm test:watch    # 변경 감지 watch 모드
 - 분야별 점수가 0~100 범위로 표시되는가
 - repo 카드가 깨지지 않는가
 - LLM 결과가 없을 때도 기본 분석 결과가 보이는가
-- PDF / 인쇄형 출력이 가능한가 ([PDF로 저장 / 인쇄] 버튼 → 브라우저 인쇄 다이얼로그에서 "대상 → PDF로 저장")
+- PDF 다운로드가 가능한가 ([PDF 파일 다운로드] 버튼 → `@react-pdf/renderer` 로 생성된 PDF 파일이 차트·대표 저장소 카드까지 포함해 바로 내려받아지는가)
 
 ## 예외 처리
 
@@ -462,7 +464,7 @@ UI에 사용자 친화적 한국어 메시지로 표시합니다.
 2. **구조와 commit을 함께 분석해 README 부족 문제를 보완합니다.** 설정 파일, 디렉토리 구조, 최근 commit 메시지가 README 부재를 대체합니다.
 3. **전체 코드를 LLM에 넣지 않습니다.** 규칙 기반 분석으로 정리한 요약 feature(JSON)만 LLM에 전달해 호출 비용을 줄이고 hallucination 위험을 낮춥니다.
 4. **단순 통계가 아니라 커리어 산출물까지 생성합니다.** 한 줄 요약 / 분야별 점수 / 포트폴리오 문장 / 이력서 bullet / 면접 질문이 한 번에 나옵니다.
-5. **웹 대시보드 + PDF 결과물로 제출 가능합니다.** 별도 PDF 서버나 외부 의존 없이 브라우저 인쇄만으로 인쇄형 보고서가 출력됩니다.
+5. **웹 대시보드 + PDF 결과물로 제출 가능합니다.** 별도 PDF 서버 없이 클라이언트에서 `@react-pdf/renderer` 로 레이더·막대·도넛 차트와 대표 저장소 카드까지 포함한 벡터 PDF 를 직접 생성해 다운로드합니다(한글 폰트 임베드).
 6. **의존성 목록만 보지 않고 핵심 기술 자산을 짚습니다.** 정제한 재귀 파일 트리(`lib/llm.ts` 같은 파일명 자체가 신호)와 `.env.example` 변수명(`OPENAI_API_KEY`, `DATABASE_URL` 등)을 LLM 입력에 더해, package.json 의존성만으로는 안 잡히던 LLM API 연동·OAuth 인증·DB 연동 같은 자산을 우선 식별합니다.
 
 ## Gen AI 활용 방식
