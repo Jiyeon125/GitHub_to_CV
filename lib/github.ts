@@ -48,6 +48,12 @@ function buildHeaders(auth?: GitHubAuth): HeadersInit {
     : BASE_HEADERS;
 }
 
+// 인증 호출 여부(=시간당 5000회 한도). user OAuth token 또는 서버 GITHUB_TOKEN 이 있으면 true.
+// 미인증(60회/시간)에서는 추가 호출이 부담되므로, README peek 같은 보강 호출의 on/off 판단에 쓴다.
+export function isAuthenticated(auth?: GitHubAuth): boolean {
+  return !!(auth?.userAccessToken || pickServerToken());
+}
+
 // 401 응답이고, 이번 호출이 "서버 GITHUB_TOKEN" 으로 갔던 경우에만 true.
 // 사용자 OAuth access token 의 401 은 진짜 인증 문제이므로 fallback 하지 않는다.
 function shouldRetryWithoutServerToken(
@@ -310,6 +316,7 @@ async function fetchReadmeText(
   owner: string,
   repo: string,
   auth?: GitHubAuth,
+  maxLength: number = README_MAX_LENGTH,
 ): Promise<string | null> {
   // GitHub API는 readme 엔드포인트에서 base64 인코딩된 content를 돌려준다.
   // - private repo 의 raw URL 은 인증이 필요하므로, private 가능성이 있을 땐
@@ -328,7 +335,7 @@ async function fetchReadmeText(
   if (data.content && data.encoding === "base64") {
     try {
       const decoded = Buffer.from(data.content, "base64").toString("utf-8");
-      return decoded.slice(0, README_MAX_LENGTH);
+      return decoded.slice(0, maxLength);
     } catch {
       // fall through
     }
@@ -337,10 +344,21 @@ async function fetchReadmeText(
   if (data.download_url) {
     // public repo 의 raw URL 은 인증 없이도 동작한다.
     const text = await fetchTextOptional(data.download_url);
-    if (text) return text.slice(0, README_MAX_LENGTH);
+    if (text) return text.slice(0, maxLength);
   }
 
   return null;
+}
+
+// 대표 repo 선정 보강용: README 앞부분만 가볍게 받아온다(선정 정확도 ↑, 토큰 비용 ↓).
+// deep 수집 전 후보 풀에 대해서만 호출하며, 인증 호출일 때만 켠다(호출량 부담 회피).
+export async function fetchReadmeSnippet(
+  owner: string,
+  repo: string,
+  auth?: GitHubAuth,
+  maxChars: number = 500,
+): Promise<string | null> {
+  return fetchReadmeText(owner, repo, auth, maxChars);
 }
 
 async function fetchRootTree(

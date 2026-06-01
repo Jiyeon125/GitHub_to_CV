@@ -70,7 +70,7 @@ GitHub에는 개발 활동 정보가 풍부하지만, 취업 준비생이나 학
         │     ├─ self+private: /user/repos?visibility=all (private 포함)
         │     ├─ self+public:  /user/repos?visibility=public
         │     └─ public:       /users/{username}/repos
-        ├─ 대표 repo 선정 (scoring.ts: computeShallowScore) — 사이드바 슬라이더 개수만큼
+        ├─ 대표 repo 선정 (scoring.ts: computeShallowScore) — 사이드바 슬라이더 개수만큼 (기준은 아래 "대표 repo 선정 기준")
         ├─ 2차 deep 수집: 대표 repo 만 (github.ts: fetchDeepRepoData)
         │     └─ README / root tree / languages / 최근 commit 10 / 설정 파일
         ├─ 규칙 기반 분석
@@ -91,6 +91,32 @@ GitHub에는 개발 활동 정보가 풍부하지만, 취업 준비생이나 학
   └─► [PDF로 저장 / 인쇄] → window.print() + @media print
 ```
 
+## 대표 repo 선정 기준
+
+전체 저장소에 규칙 기반 점수를 매겨 후보를 추리고, (LLM 사용 시) 포트폴리오 관점으로 리랭킹해 최종 대표 repo 를 고릅니다.
+
+**1. 규칙 점수 (`scoring.ts: computeShallowScore` → deep 수집 후 `refineScoreWithDeepData`, 0~100)**
+
+"이력서 대표성" 관점에서 **실속(구조·README) 우선**으로 가중치를 둡니다.
+
+| 신호 | 점수 | 설명 |
+|---|---|---|
+| 구조 (파일/폴더) | +20 | deep 수집 후. 루트 엔트리 3개 이상이면 만점, 1~2개 부분 점수 |
+| README | +15 | deep 수집 후. README 존재 시 |
+| 최근성 | +15 | `updated_at` / `pushed_at` 중 **더 최근 값** 기준, 1년 이상 활동 없으면 0 |
+| 배포 (homepage/Pages) | +10 | 실제 배포 URL 이 있으면 가산 (포트폴리오 강신호) |
+| description | 0~10 | 설명 길이에 비례한 연속 점수, 없으면 0 |
+| 활동성 (star/fork) | 0~8 | log scale. 학생·취준생 repo 는 변별력이 낮아 보조 신호로만 |
+| topics | +5 | 분류/관리 의지 신호 |
+| archived/disabled | -25 | 보관·비활성(죽은) repo 강등 (완전 제외는 아님) |
+| fork | -5 ~ -10 | description 유무로 차등 (본인 작성 설명이 있으면 완화) |
+| 튜토리얼/클론 패턴 | -15 | 이름·설명이 학습용(`tutorial`, `clone`, `boilerplate` 등) |
+| 빈 repo (size) | -10 ~ -20 | 사실상 비어 있는 repo |
+
+**2. 후보 풀 구성 (`analyze.ts`)** — 규칙 점수 상위 K 개(보통 ~12개)를 후보 풀로 사용합니다. 별도 다양성 알고리즘은 두지 않고, "여러 언어/도메인을 고르게 보여주기"는 아래 LLM 리랭킹 단계에 맡깁니다.
+
+**3. (선택) LLM 리랭킹 (`llm.ts: rerankRepoSelection`)** — 후보의 **메타데이터**(이름/설명/언어/topics/별점/사이즈/recency/배포 URL/보관 여부)에 더해, **인증된 호출(로그인 또는 서버 토큰)일 때는 각 후보의 README 앞부분 스니펫(~500자)** 을 함께 보내 포트폴리오 관점에서 N 개를 선정합니다(다양성도 이 단계에서 반영). 전체 코드 본문은 보내지 않아 토큰 비용·할루시네이션·private 노출을 억제하고, 미인증 호출에서는 rate limit 부담을 피하려 스니펫 없이 메타데이터만 사용합니다. LLM 실패 시 규칙 점수 순서로 자동 fallback 합니다.
+
 ## 파일 구조
 
 ```
@@ -105,7 +131,7 @@ lib/
   auth.ts                # NextAuth authOptions (GitHub OAuth, JWT)
   analyze.ts             # 수집 → 분석 → LLM 오케스트레이션 (mode/private 인자 추가)
   github.ts              # GitHub REST 클라이언트 (user token + visibility 옵션)
-  scoring.ts             # PoC 점수 함수 + MVP 가중치 (보존)
+  scoring.ts             # 대표 repo 규칙 점수 (실속 우선 가중치, shallow→deep 보정)
   readmeReliability.ts   # high / medium / low / missing 평가
   techStack.ts           # 설정 파일 / 구조 기반 스택 추출
   domainScores.ts        # 6축 분야 점수 + 0~100 정규화

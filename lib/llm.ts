@@ -559,7 +559,8 @@ export async function generateUserReport(
 
 // === 대표 repo 선정 리랭커 ===
 // 규칙 기반으로 추린 후보 풀(보통 6~12개)을 받아 포트폴리오 관점에서 N 개를 LLM 이 고르도록 한다.
-// - 입력은 메타데이터(이름/desc/언어/topics/별점/사이즈/recency/topic 다양성)만 사용. deep 데이터 불필요.
+// - 입력은 메타데이터(이름/desc/언어/topics/별점/사이즈/recency/배포 URL/보관 여부) + (인증 호출 시) README 앞부분 스니펫.
+//   전체 deep 데이터는 불필요하며, 본문은 짧은 스니펫만 보내 비용/할루시네이션을 억제한다.
 // - 결정성을 위해 temperature=0, stableStringify(payload), seed=hash(prompt+payload+model) 그대로.
 // - 응답은 강제 JSON: { "picks": [{ "name": string, "reason": string }] }
 // - 실패/파싱 실패 시 null → 호출 측에서 규칙 기반 fallback 으로 그대로 진행.
@@ -572,7 +573,11 @@ export type RepoSelectionCandidate = {
   stargazers_count: number;
   size: number | null;
   updated_at: string;
+  pushed_at: string | null; // 실제 코드 push 시각 (updated_at 보다 정확한 최근성)
   is_fork: boolean;
+  is_archived: boolean; // 보관/비활성 repo 여부
+  homepage: string | null; // 배포 URL (있으면 실제 배포 신호)
+  readme_excerpt: string | null; // README 앞부분 (인증 호출일 때만 채워짐, 없으면 null)
   rule_score: number; // 규칙 기반 점수 (참고용)
 };
 
@@ -580,10 +585,13 @@ const SELECTION_SYSTEM_PROMPT = `당신은 GitHub 프로필을 이력서·포트
 주어진 후보 저장소 목록에서 "포트폴리오에 대표로 보여주기 가장 좋은" 저장소를 정확히 N 개 골라주세요.
 
 [입력 형식]
-{ "limit": number, "candidates": [{ "name", "description", "language", "topics", "stargazers_count", "size", "updated_at", "is_fork", "rule_score" }, ...] }
+{ "limit": number, "candidates": [{ "name", "description", "language", "topics", "stargazers_count", "size", "updated_at", "pushed_at", "is_fork", "is_archived", "homepage", "readme_excerpt", "rule_score" }, ...] }
 
 [선정 원칙]
 - 학습/튜토리얼/클론 코딩/빈 스캐폴드 보다 본인이 직접 설계·구현한 흔적이 있는 repo 를 선호.
+- readme_excerpt(README 앞부분)가 있으면 실제 구현/설명의 충실도를 판단하는 데 적극 활용. 구체적 기능·설계 설명이 있으면 우대, 비어 있거나(null) 부실하면 신뢰도 신호를 낮게 본다.
+- homepage(배포 URL)가 있으면 실제 배포까지 한 프로젝트로 보고 우대.
+- is_archived=true(보관/비활성) repo 는 비선호.
 - 같은 언어/도메인이 N 개 모두 겹치지 않도록 다양성을 약간 반영(언어/topic 이 다른 후보가 동률이면 가산).
 - description / topics 가 충실한 repo 를 약간 선호.
 - fork 는 description 이 본인 작성으로 보일 때만 고려.
@@ -610,7 +618,7 @@ export async function rerankRepoSelection(
     config,
     SELECTION_SYSTEM_PROMPT,
     { limit, candidates },
-    "repo-selection-v1",
+    "repo-selection-v3",
   );
   const parsed = tryParseJson<{ picks?: Array<{ name?: string; reason?: string }> }>(text);
   if (!parsed || !Array.isArray(parsed.picks)) return null;
