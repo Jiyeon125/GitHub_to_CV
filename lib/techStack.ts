@@ -59,6 +59,16 @@ function fromPackageJson(text: string | null): StackSignal[] {
     { dep: "typeorm", stack: "TypeORM" },
     { dep: "mongoose", stack: "Mongoose" },
     { dep: "sequelize", stack: "Sequelize" },
+    { dep: "drizzle-orm", stack: "Drizzle ORM" },
+    // DB 드라이버 → 실제 DB 엔진
+    { dep: /^(pg|postgres)$/, stack: "PostgreSQL" },
+    { dep: "@neondatabase/serverless", stack: "PostgreSQL" },
+    { dep: /^(mysql|mysql2)$/, stack: "MySQL" },
+    { dep: "@planetscale/database", stack: "MySQL" },
+    { dep: "mongodb", stack: "MongoDB" },
+    { dep: /^(redis|ioredis)$/, stack: "Redis" },
+    { dep: /^(sqlite3|better-sqlite3)$/, stack: "SQLite" },
+    { dep: "@supabase/supabase-js", stack: "Supabase" },
     { dep: "jest", stack: "Jest" },
     { dep: "vitest", stack: "Vitest" },
     { dep: "playwright", stack: "Playwright" },
@@ -101,6 +111,13 @@ function fromPython(requirements: string | null, pyproject: string | null): Stac
     { key: "pytest", stack: "pytest" },
     { key: "celery", stack: "Celery" },
     { key: "sqlalchemy", stack: "SQLAlchemy" },
+    // DB 드라이버 → 실제 DB 엔진
+    { key: "psycopg2", stack: "PostgreSQL" },
+    { key: "asyncpg", stack: "PostgreSQL" },
+    { key: "pymysql", stack: "MySQL" },
+    { key: "mysqlclient", stack: "MySQL" },
+    { key: "pymongo", stack: "MongoDB" },
+    { key: "redis", stack: "Redis" },
   ];
 
   return mapping
@@ -153,8 +170,35 @@ function fromTree(tree: TreeEntry[]): StackSignal[] {
 }
 
 // 언어 분포 기반 (HTTP languages 응답 byte 수)
+// byte 비중으로 가중치를 매겨, 의미 있는 비중(>=10%)의 언어는 임계값을 넘겨 채택되도록 한다.
+// (기존엔 모든 언어 weight 1 → 주 언어만 통과하고 부차 언어가 전부 탈락하던 버그)
 function fromLanguages(languages: Record<string, number>): StackSignal[] {
-  return Object.keys(languages).map((lang) => ({ stack: lang, weight: 1 }));
+  const total = Object.values(languages).reduce((sum, bytes) => sum + bytes, 0);
+  if (total <= 0) {
+    return Object.keys(languages).map((lang) => ({ stack: lang, weight: 1 }));
+  }
+  return Object.entries(languages).map(([lang, bytes]) => {
+    const share = bytes / total;
+    const weight = share >= 0.5 ? 3 : share >= 0.1 ? 2 : 1;
+    return { stack: lang, weight };
+  });
+}
+
+// .env 예시 변수 이름으로 데이터베이스/캐시 엔진을 추정한다.
+// 값은 보지 않고 키 이름 패턴만 사용한다. 엔진을 특정할 수 없는 일반 키(DATABASE_URL 단독)는
+// 잘못 단정하지 않도록 제외하고, 드라이버 패키지 신호에 맡긴다.
+function fromEnvKeys(envKeys: string[]): StackSignal[] {
+  if (envKeys.length === 0) return [];
+  const joined = envKeys.join("\n").toUpperCase();
+  const out: StackSignal[] = [];
+  const has = (re: RegExp) => re.test(joined);
+  if (has(/MONGO/)) out.push({ stack: "MongoDB", weight: 2 });
+  if (has(/MYSQL|MARIADB|PLANETSCALE/)) out.push({ stack: "MySQL", weight: 2 });
+  if (has(/POSTGRES|\bPG[_A-Z]*\b|PGHOST|NEON|SUPABASE/)) {
+    out.push({ stack: "PostgreSQL", weight: 2 });
+  }
+  if (has(/REDIS/)) out.push({ stack: "Redis", weight: 2 });
+  return out;
 }
 
 // 단일 repo 기술 스택
@@ -176,6 +220,7 @@ export function extractRepoTechStack(repo: GitHubRepo, deep: DeepRepoData | null
     add(fromDocker(deep.configFiles["Dockerfile"]));
     add(fromTree(deep.rootTree));
     add(fromLanguages(deep.languages));
+    add(fromEnvKeys(deep.envKeys ?? []));
   }
 
   if (repo.topics) {
@@ -265,12 +310,19 @@ const STACK_CATEGORY: Record<string, TechCategory> = {
   LangChain: "데이터·ML",
   "OpenAI SDK": "데이터·ML",
   Jupyter: "데이터·ML",
-  // 데이터베이스
+  // 데이터베이스 (ORM + 엔진)
   Prisma: "데이터베이스",
   TypeORM: "데이터베이스",
   Mongoose: "데이터베이스",
   Sequelize: "데이터베이스",
+  "Drizzle ORM": "데이터베이스",
   SQLAlchemy: "데이터베이스",
+  PostgreSQL: "데이터베이스",
+  MySQL: "데이터베이스",
+  MongoDB: "데이터베이스",
+  Redis: "데이터베이스",
+  SQLite: "데이터베이스",
+  Supabase: "데이터베이스",
   // 모바일
   "React Native": "모바일",
   Expo: "모바일",
@@ -331,6 +383,31 @@ export function groupTechStack(stacks: string[]): Array<{ category: TechCategory
     category,
     items: buckets.get(category) as string[],
   }));
+}
+
+// repo 의 언어 비중(전체 언어, byte 기준)을 추출한다.
+// 언어는 repo 메타에서 바로 나오는 1차 정보이므로 임계값 없이 전부 노출한다.
+// (프레임워크/DB/도구 등 "추론한 기술 스택"과는 성격이 다르므로 분리해서 다룬다.)
+export function extractRepoLanguages(
+  repo: { language?: string | null },
+  deep: DeepRepoData | null,
+): Array<{ name: string; share: number }> {
+  const langs = deep?.languages ?? {};
+  const total = Object.values(langs).reduce((sum, bytes) => sum + bytes, 0);
+  if (total > 0) {
+    return Object.entries(langs)
+      .map(([name, bytes]) => ({ name, share: bytes / total }))
+      .sort((a, b) => b.share - a.share);
+  }
+  // byte 분포를 못 가져왔으면 주 언어만이라도 노출
+  if (repo.language) return [{ name: repo.language, share: 1 }];
+  return [];
+}
+
+// 표시용: 기술 스택 목록에서 순수 언어 항목을 제거한다.
+// (언어는 별도 "언어 비중"으로 보여주므로 중복을 피한다. 점수 계산용 techStack 은 그대로 유지)
+export function techStackWithoutLanguages(stacks: string[]): string[] {
+  return stacks.filter((stack) => categorizeTech(stack) !== "언어");
 }
 
 // 사용자 전체 기술 스택 분포 집계

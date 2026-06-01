@@ -26,7 +26,7 @@ export default function Dashboard({ data }: Props) {
   const scopeLabel = data.mode === "self" && data.privateIncluded ? "전체 저장소" : "공개 저장소";
 
   return (
-    <div className="report-root flex w-full flex-col gap-3 p-3 lg:p-4 max-w-[1200px] mx-auto">
+    <div className="report-root flex w-full flex-col gap-5 p-3 lg:gap-6 lg:p-4 max-w-[1200px] mx-auto">
       <header className="report-print-title hidden print:block">
         <p className="text-xs font-mono text-muted-foreground mb-2">
           GitHub Developer Activity Report
@@ -52,7 +52,7 @@ export default function Dashboard({ data }: Props) {
       </div>
 
       {/* Headline Card */}
-      <div className="report-headline bg-card border border-border rounded-xl p-4 lg:p-5">
+      <div className="report-headline bg-card border border-border rounded-xl p-5 lg:p-6">
         <p className="text-sm text-muted-foreground mb-2 font-mono">
           <a
             href={data.profileUrl}
@@ -98,7 +98,7 @@ export default function Dashboard({ data }: Props) {
 
       {/* Tag Row */}
       {tags.length > 0 && (
-        <div className="report-tag-grid grid grid-cols-2 lg:grid-cols-4 gap-2">
+        <div className="report-tag-grid grid grid-cols-2 lg:grid-cols-4 gap-3">
           {tags.map((tag, i) => (
             <TagCard key={`${tag.name}-${i}`} tag={tag.name} reason={tag.reason} />
           ))}
@@ -106,8 +106,8 @@ export default function Dashboard({ data }: Props) {
       )}
 
       {/* Middle Grid: Radar + Tech/Activity */}
-      <div className="report-middle-grid grid grid-cols-1 lg:grid-cols-5 gap-3 lg:gap-4">
-        <div className="report-domain-card lg:col-span-2 bg-card border border-border rounded-xl p-4 lg:p-5">
+      <div className="report-middle-grid grid grid-cols-1 lg:grid-cols-5 gap-4 lg:gap-5">
+        <div className="report-domain-card lg:col-span-2 min-h-[280px] bg-card border border-border rounded-xl p-5 lg:p-6">
           <div className="mb-3">
             <h3 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-1 flex items-center gap-1.5">
               분야별 점수
@@ -127,7 +127,7 @@ export default function Dashboard({ data }: Props) {
           )}
         </div>
 
-        <div className="lg:col-span-3 flex flex-col gap-3 lg:gap-4">
+        <div className="lg:col-span-3 flex flex-col gap-4 lg:gap-5">
           <TechStackPanel
             techStack={data.techStackDistribution}
             languages={data.languageDistribution}
@@ -142,12 +142,12 @@ export default function Dashboard({ data }: Props) {
       </div>
 
       {/* Repo Cards */}
-      <div className="report-repos">
-        <div className="flex items-baseline justify-between mb-4">
-          <h3 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+      <div className="report-repos pt-2 lg:pt-4">
+        <div className="flex items-baseline justify-between mb-5 lg:mb-6">
+          <h3 className="text-sm font-semibold uppercase tracking-wide text-foreground lg:text-base">
             대표 저장소
           </h3>
-          <span className="text-xs text-muted-foreground">
+          <span className="text-sm text-muted-foreground">
             상위 {data.selectedRepos.length}개
           </span>
         </div>
@@ -160,7 +160,7 @@ export default function Dashboard({ data }: Props) {
             </p>
           </div>
         ) : (
-          <div className="report-repo-grid grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+          <div className="report-repo-grid grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5 lg:gap-6">
             {data.selectedRepos.map((repo) => (
               <div key={repo.id} className="report-repo-item">
                 <RepoCard repo={repo} />

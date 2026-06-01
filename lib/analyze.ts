@@ -23,7 +23,12 @@ import {
   type ScoredRepo,
 } from "./scoring";
 import { evaluateReadmeReliability } from "./readmeReliability";
-import { extractRepoTechStack, aggregateTechStackDistribution } from "./techStack";
+import {
+  extractRepoTechStack,
+  extractRepoLanguages,
+  techStackWithoutLanguages,
+  aggregateTechStackDistribution,
+} from "./techStack";
 import {
   combineDomainSignals,
   scoreRepoForDomains,
@@ -127,6 +132,7 @@ function toSelectionCandidate(
 function buildAnalyzedRepo(base: ScoredRepo, deep: DeepRepoData | null): AnalyzedRepo {
   const readmeReliability = evaluateReadmeReliability(deep?.readmeText ?? null, deep);
   const techStack = extractRepoTechStack(base, deep);
+  const languages = extractRepoLanguages(base, deep);
 
   const rootEntryCount = deep?.rootTree.length ?? 0;
   const refined = refineScoreWithDeepData(base, {
@@ -182,6 +188,7 @@ function buildAnalyzedRepo(base: ScoredRepo, deep: DeepRepoData | null): Analyze
     ...refined,
     readmeReliability,
     techStack,
+    languages,
     structureSummary,
     fileTreeSummary,
     envKeys,
@@ -463,8 +470,9 @@ export async function runAnalyze(
   const activityPattern = analyzeActivityPattern(commitsByRepo, options.timezone || DEFAULT_TIMEZONE);
 
   // === 기술 스택 분포 / 언어 분포 ===
+  // 기술 스택 분포에는 순수 언어를 제외한다(언어는 아래 languageDistribution 으로 따로 보여줌).
   const techStackDistribution = aggregateTechStackDistribution(
-    selectedRepos.map((r) => r.techStack),
+    selectedRepos.map((r) => techStackWithoutLanguages(r.techStack)),
   );
   const languageDistribution = getLanguageDistribution(repos);
   const topLanguage = getTopLanguage(repos);

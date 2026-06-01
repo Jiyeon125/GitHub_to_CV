@@ -61,7 +61,7 @@ function ActivityBadgeLegend() {
 export default function ActivityPanel({ pattern }: Props) {
   if (pattern.commit_sample_size === 0) {
     return (
-      <div className="bg-card border border-border rounded-xl p-4 lg:p-5">
+      <div className="bg-card border border-border rounded-xl p-5 lg:p-6">
         <h3 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-3">
           활동 패턴
         </h3>
@@ -71,7 +71,7 @@ export default function ActivityPanel({ pattern }: Props) {
   }
 
   return (
-    <div className="bg-card border border-border rounded-xl p-4 lg:p-5">
+    <div className="bg-card border border-border rounded-xl p-5 lg:p-6">
       <div className="flex items-center justify-between mb-3">
         <h3 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground flex items-center gap-1.5">
           활동 패턴

@@ -24,6 +24,7 @@ import type {
   LLMRepoReport,
   LLMUserReport,
 } from "./types";
+import { techStackWithoutLanguages } from "./techStack";
 
 export type LlmProvider = "gateway" | "custom" | "none";
 
@@ -234,8 +235,8 @@ export function buildRepoReportInputs(repos: AnalyzedRepo[]): RepoReportInput[] 
     repo_name: repo.name,
     description: repo.description,
     readme_reliability: repo.readmeReliability.level,
-    languages: repo.language ? [repo.language] : [],
-    tech_stack: repo.techStack,
+    languages: (repo.languages ?? []).slice(0, 5).map((l) => l.name),
+    tech_stack: techStackWithoutLanguages(repo.techStack),
     structure_summary: repo.structureSummary.slice(0, 8),
     file_tree: (repo.fileTreeSummary ?? []).slice(0, 40),
     env_keys: (repo.envKeys ?? []).slice(0, 25),

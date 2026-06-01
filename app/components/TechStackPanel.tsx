@@ -41,7 +41,7 @@ export default function TechStackPanel({
   const safeLanguageDenominator = Math.max(1, languageDenominator);
 
   return (
-    <div className="bg-card border border-border rounded-xl p-4 lg:p-5">
+    <div className="bg-card border border-border rounded-xl p-5 lg:p-6">
       <h3 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-3">
         기술 스택
       </h3>

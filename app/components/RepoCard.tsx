@@ -1,14 +1,38 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { ExternalLink, ChevronDown, Lock } from "lucide-react";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "./ui/collapsible";
 import { ReliabilityBadge } from "./ReliabilityBadge";
 import { TechChip } from "./TechChip";
 import CopyButton from "./CopyButton";
 import InfoTooltip from "./InfoTooltip";
-import { groupTechStack } from "@/lib/techStack";
+import { groupTechStack, techStackWithoutLanguages } from "@/lib/techStack";
 import type { AnalyzedRepo } from "@/lib/types";
+
+function formatShare(share: number): string {
+  const pct = Math.round(share * 100);
+  return pct < 1 ? "<1%" : `${pct}%`;
+}
+
+const STACK_LABEL_CLASS =
+  "w-[4.5rem] shrink-0 pt-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground/70";
+
+// 라벨(왼쪽)과 뱃지 영역(오른쪽)을 분리해, 줄바꿈 시 뱃지가 라벨 아래가 아닌 첫 줄과 같은 들여쓰기로 이어지게 한다.
+function StackRow({
+  label,
+  children,
+}: {
+  label: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className="flex items-start gap-1.5">
+      <span className={STACK_LABEL_CLASS}>{label}</span>
+      <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">{children}</div>
+    </div>
+  );
+}
 
 function formatDate(value: string): string {
   try {
@@ -95,17 +119,27 @@ export default function RepoCard({ repo }: { repo: AnalyzedRepo }) {
         </p>
       )}
 
-      {repo.techStack.length > 0 && (
-        <div className="space-y-1.5">
-          {groupTechStack(repo.techStack.slice(0, 12)).map((group) => (
-            <div key={group.category} className="flex flex-wrap items-center gap-1.5">
-              <span className="w-[4.5rem] shrink-0 text-[10px] font-medium uppercase tracking-wide text-muted-foreground/70">
-                {group.category}
-              </span>
+      {((repo.languages && repo.languages.length > 0) || repo.techStack.length > 0) && (
+        <div className="space-y-2">
+          {repo.languages && repo.languages.length > 0 && (
+            <StackRow label="언어">
+              {repo.languages.slice(0, 8).map((lang) => (
+                <span
+                  key={lang.name}
+                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md border border-border bg-muted/40 text-[11px] text-foreground"
+                >
+                  {lang.name}
+                  <span className="text-muted-foreground">{formatShare(lang.share)}</span>
+                </span>
+              ))}
+            </StackRow>
+          )}
+          {groupTechStack(techStackWithoutLanguages(repo.techStack).slice(0, 12)).map((group) => (
+            <StackRow key={group.category} label={group.category}>
               {group.items.map((tech) => (
                 <TechChip key={tech} name={tech} />
               ))}
-            </div>
+            </StackRow>
           ))}
         </div>
       )}

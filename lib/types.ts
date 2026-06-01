@@ -84,7 +84,8 @@ export type LLMUserReport = {
 // 최종 분석된 repo 단위
 export type AnalyzedRepo = ScoredRepo & {
   readmeReliability: ReadmeReliability;
-  techStack: TechStack;
+  techStack: TechStack; // 추론한 프레임워크/DB/도구 (+ 점수 계산용으로 언어 포함)
+  languages?: Array<{ name: string; share: number }>; // 언어 비중 전체 (byte 기준, 표시용)
   structureSummary: string[]; // 루트 디렉토리 요약
   fileTreeSummary?: string[]; // 정제한 재귀 파일 경로 (핵심 자산 식별용)
   envKeys?: string[]; // .env 예시 변수 이름 (외부 연동 신호)

@@ -3,8 +3,10 @@ import { describe, expect, it } from "vitest";
 import {
   aggregateTechStackDistribution,
   categorizeTech,
+  extractRepoLanguages,
   extractRepoTechStack,
   groupTechStack,
+  techStackWithoutLanguages,
 } from "@/lib/techStack";
 import type { GitHubRepo } from "@/lib/scoring";
 import type { DeepRepoData } from "@/lib/types";
@@ -63,6 +65,34 @@ describe("extractRepoTechStack", () => {
     expect(stack).toContain("scikit-learn");
   });
 
+  it("주 언어가 아니어도 byte 비중이 충분한 언어를 채택한다", () => {
+    const deep = makeDeep({
+      languages: { TypeScript: 7000, Python: 3000, CSS: 200 },
+    });
+    const stack = extractRepoTechStack(makeRepo({ language: "TypeScript" }), deep);
+    expect(stack).toContain("TypeScript");
+    expect(stack).toContain("Python"); // 30% → weight 2 → 임계값 통과
+    expect(stack).not.toContain("CSS"); // 2% → weight 1 → 탈락
+  });
+
+  it("package.json DB 드라이버에서 DB 엔진을 추출한다", () => {
+    const deep = makeDeep({
+      configFiles: {
+        "package.json": JSON.stringify({ dependencies: { pg: "8", ioredis: "5" } }),
+      },
+    });
+    const stack = extractRepoTechStack(makeRepo(), deep);
+    expect(stack).toContain("PostgreSQL");
+    expect(stack).toContain("Redis");
+  });
+
+  it(".env 예시 키에서 DB/캐시 엔진을 추정한다 (값은 보지 않음)", () => {
+    const deep = makeDeep({ envKeys: ["POSTGRES_HOST", "REDIS_URL", "DATABASE_URL"] });
+    const stack = extractRepoTechStack(makeRepo(), deep);
+    expect(stack).toContain("PostgreSQL");
+    expect(stack).toContain("Redis");
+  });
+
   it("deep 데이터가 없으면 언어만으로 빈약한 결과를 낸다", () => {
     const stack = extractRepoTechStack(makeRepo({ language: "Go" }), null);
     expect(stack).toContain("Go"); // language 가중치 +2 → 임계값 통과
@@ -95,6 +125,28 @@ describe("groupTechStack", () => {
     expect(categorizeTech("Go")).toBe("언어");
     expect(categorizeTech("PyTorch")).toBe("데이터·ML");
     expect(categorizeTech("some-random-topic")).toBe("기타");
+  });
+});
+
+describe("extractRepoLanguages", () => {
+  it("byte 분포의 모든 언어를 비중과 함께 내림차순으로 반환한다 (임계값 없음)", () => {
+    const deep = makeDeep({ languages: { TypeScript: 7000, Python: 2800, CSS: 200 } });
+    const langs = extractRepoLanguages(makeRepo({ language: "TypeScript" }), deep);
+    expect(langs.map((l) => l.name)).toEqual(["TypeScript", "Python", "CSS"]);
+    expect(langs[0].share).toBeCloseTo(0.7, 5);
+    expect(langs.some((l) => l.name === "CSS")).toBe(true); // 작아도 전부 포함
+  });
+
+  it("byte 분포가 없으면 주 언어만 100%로 반환한다", () => {
+    const langs = extractRepoLanguages(makeRepo({ language: "Go" }), makeDeep());
+    expect(langs).toEqual([{ name: "Go", share: 1 }]);
+  });
+});
+
+describe("techStackWithoutLanguages", () => {
+  it("순수 언어 항목만 제거하고 프레임워크/DB/도구는 남긴다", () => {
+    const result = techStackWithoutLanguages(["TypeScript", "React", "Go", "PostgreSQL", "Docker"]);
+    expect(result).toEqual(["React", "PostgreSQL", "Docker"]);
   });
 });
 
