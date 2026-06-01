@@ -298,16 +298,101 @@ export async function fetchDeepRepoData(
   // 호출량을 줄이기 위해 readme / rootTree / languages / commits 를 먼저 병렬로 받고,
   // configFiles 는 rootTree 결과 기준으로 "실제 루트에 존재하는 파일만" 호출한다.
   // (미인증 60회/시간 한도에서도 더 많은 repo 분석을 가능하게 한다.)
-  const [readmeText, rootTree, languages, commits] = await Promise.all([
+  const [readmeText, fullTree, languages, commits] = await Promise.all([
     fetchReadmeText(owner, repo, auth),
-    fetchRootTree(owner, repo, branch, auth),
+    fetchFullTree(owner, repo, branch, auth),
     fetchLanguages(owner, repo, auth),
     fetchRecentCommits(owner, repo, 10, auth),
   ]);
 
-  const configFiles = await fetchConfigFiles(owner, repo, branch, rootTree, auth);
+  // rootTree(최상위)는 기존 구조 점수/techStack 계산 의미를 유지하기 위해 재귀 트리에서 파생한다.
+  // fileTree(정제한 재귀 경로)는 "핵심 자산"을 짚기 위해 LLM 입력으로 따로 사용한다.
+  const rootTree = fullTree.filter((entry) => !entry.path.includes("/"));
+  const fileTree = curateFileTree(fullTree);
 
-  return { readmeText, rootTree, languages, commits, configFiles };
+  const [configFiles, envKeys] = await Promise.all([
+    fetchConfigFiles(owner, repo, branch, rootTree, auth),
+    fetchEnvExampleKeys(owner, repo, branch, fullTree, auth),
+  ]);
+
+  return { readmeText, rootTree, fileTree, envKeys, languages, commits, configFiles };
+}
+
+// 트리에서 제외할 노이즈(빌드 산출물 / 락파일 / 바이너리·미디어 등).
+const TREE_NOISE_RE =
+  /(^|\/)(node_modules|dist|build|out|\.next|\.nuxt|\.git|vendor|coverage|__pycache__|\.venv|venv|env|target|\.idea|\.vscode|\.cache|tmp)(\/|$)|\.(lock|min\.js|min\.css|map|png|jpe?g|gif|svg|ico|webp|woff2?|ttf|eot|otf|mp4|mov|pdf|zip|gz)$|(^|\/)(package-lock\.json|pnpm-lock\.yaml|yarn\.lock)$/i;
+
+// 재귀 트리에서 "아키텍처를 드러내는" 소스 경로만 정제해 추린다.
+// - 파일명/디렉토리명 자체가 핵심 신호이므로(예: lib/llm.ts) blob 경로를 그대로 노출한다.
+// - 노이즈를 걷어내고 상한(80)을 둬 LLM 토큰 비용을 억제한다(LLM 입력에서 한 번 더 자름).
+function curateFileTree(full: TreeEntry[]): string[] {
+  return full
+    .filter((entry) => entry.type === "blob")
+    .map((entry) => entry.path)
+    .filter((path) => !TREE_NOISE_RE.test(path))
+    .slice(0, 80);
+}
+
+// .env "예시" 파일만 식별한다. 실제 시크릿이 들어갈 수 있는 .env / .env.local 등은 제외한다.
+function isEnvExamplePath(path: string): boolean {
+  const name = (path.split("/").pop() ?? "").toLowerCase();
+  if (!name.includes("env")) return false;
+  // 실제 환경 파일(시크릿 가능) 제외
+  if (/^\.env(\.(local|development|dev|production|prod|test|staging))?$/.test(name)) return false;
+  // 예시/샘플/템플릿 형태만 허용
+  return /(example|sample|template|dist|default)/.test(name);
+}
+
+// .env 예시 파일에서 "변수 이름만" 추출한다.
+// - 값(placeholder 포함)은 전부 버려 프라이버시/결정성을 지킨다.
+// - 변수명은 외부 연동/서비스 신호다(OPENAI_API_KEY, DATABASE_URL, NEXTAUTH_SECRET 등).
+function parseEnvKeys(text: string): string[] {
+  const keys: string[] = [];
+  const seen = new Set<string>();
+  for (const rawLine of text.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("#")) continue;
+    const withoutExport = line.replace(/^export\s+/i, "");
+    const eqIndex = withoutExport.indexOf("=");
+    const key = (eqIndex >= 0 ? withoutExport.slice(0, eqIndex) : withoutExport).trim();
+    if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(key) && !seen.has(key)) {
+      seen.add(key);
+      keys.push(key);
+      if (keys.length >= 25) break;
+    }
+  }
+  return keys;
+}
+
+async function fetchEnvExampleKeys(
+  owner: string,
+  repo: string,
+  branch: string,
+  fullTree: TreeEntry[],
+  auth?: GitHubAuth,
+): Promise<string[]> {
+  const target = fullTree.find((entry) => entry.type === "blob" && isEnvExamplePath(entry.path));
+  if (!target) return [];
+
+  const data = await fetchGitHubOptional<{
+    content?: string;
+    encoding?: string;
+    download_url?: string | null;
+  }>(`https://api.github.com/repos/${owner}/${repo}/contents/${target.path}?ref=${branch}`, auth);
+
+  let text: string | null = null;
+  if (data?.content && data.encoding === "base64") {
+    try {
+      text = Buffer.from(data.content, "base64").toString("utf-8");
+    } catch {
+      text = null;
+    }
+  }
+  if (!text && data?.download_url) {
+    text = await fetchTextOptional(data.download_url);
+  }
+  if (!text) return [];
+  return parseEnvKeys(text);
 }
 
 const README_MAX_LENGTH = 20_000;
@@ -361,16 +446,18 @@ export async function fetchReadmeSnippet(
   return fetchReadmeText(owner, repo, auth, maxChars);
 }
 
-async function fetchRootTree(
+// 재귀 트리: 중첩된 파일 경로까지 한 번의 호출(?recursive=1)로 가져온다.
+// 대형 repo 에서 truncated 될 수 있으나, 받은 만큼만 사용한다(핵심 자산 식별엔 충분).
+async function fetchFullTree(
   owner: string,
   repo: string,
   branch: string,
   auth?: GitHubAuth,
 ): Promise<TreeEntry[]> {
-  const data = await fetchGitHubOptional<{ tree: Array<{ path: string; type: string }> }>(
-    `https://api.github.com/repos/${owner}/${repo}/git/trees/${branch}`,
-    auth,
-  );
+  const data = await fetchGitHubOptional<{
+    tree: Array<{ path: string; type: string }>;
+    truncated?: boolean;
+  }>(`https://api.github.com/repos/${owner}/${repo}/git/trees/${branch}?recursive=1`, auth);
   if (!data?.tree) return [];
   return data.tree.map((entry) => ({
     path: entry.path,

@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { aggregateTechStackDistribution, extractRepoTechStack } from "@/lib/techStack";
+import {
+  aggregateTechStackDistribution,
+  categorizeTech,
+  extractRepoTechStack,
+  groupTechStack,
+} from "@/lib/techStack";
 import type { GitHubRepo } from "@/lib/scoring";
 import type { DeepRepoData } from "@/lib/types";
 
@@ -66,6 +71,30 @@ describe("extractRepoTechStack", () => {
   it("잘못된 package.json 은 무시하고 깨지지 않는다", () => {
     const deep = makeDeep({ configFiles: { "package.json": "{not json" } });
     expect(() => extractRepoTechStack(makeRepo(), deep)).not.toThrow();
+  });
+});
+
+describe("groupTechStack", () => {
+  it("스택을 범주별로 묶고 고정된 범주 순서를 따른다", () => {
+    const groups = groupTechStack([
+      "PyTorch",
+      "Next.js",
+      "TypeScript",
+      "Docker",
+      "Transformers",
+      "Vitest",
+    ]);
+    const order = groups.map((g) => g.category);
+    // CATEGORY_ORDER: 언어 → 프론트엔드 → ... → 데이터·ML → ... → 테스트 → 인프라·도구
+    expect(order).toEqual(["언어", "프론트엔드", "데이터·ML", "테스트", "인프라·도구"]);
+    const ml = groups.find((g) => g.category === "데이터·ML");
+    expect(ml?.items).toEqual(["PyTorch", "Transformers"]);
+  });
+
+  it("매핑에 없는 언어는 '언어', 그 외 미지의 값은 '기타'로 분류한다", () => {
+    expect(categorizeTech("Go")).toBe("언어");
+    expect(categorizeTech("PyTorch")).toBe("데이터·ML");
+    expect(categorizeTech("some-random-topic")).toBe("기타");
   });
 });
 

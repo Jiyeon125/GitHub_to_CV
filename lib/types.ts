@@ -22,7 +22,9 @@ export type TreeEntry = {
 // 2차 deep collection 결과: 대표 repo에 대해서만 수집
 export type DeepRepoData = {
   readmeText: string | null;
-  rootTree: TreeEntry[];
+  rootTree: TreeEntry[]; // 최상위 항목 (구조 점수/techStack 용)
+  fileTree?: string[]; // 정제한 재귀 파일 경로 (핵심 자산 식별용 LLM 입력)
+  envKeys?: string[]; // .env 예시 파일의 변수 이름 (외부 연동 신호, 값은 제외)
   languages: Record<string, number>;
   commits: RepoCommit[];
   configFiles: Record<string, string | null>; // package.json, requirements.txt 등의 원문 일부
@@ -84,6 +86,8 @@ export type AnalyzedRepo = ScoredRepo & {
   readmeReliability: ReadmeReliability;
   techStack: TechStack;
   structureSummary: string[]; // 루트 디렉토리 요약
+  fileTreeSummary?: string[]; // 정제한 재귀 파일 경로 (핵심 자산 식별용)
+  envKeys?: string[]; // .env 예시 변수 이름 (외부 연동 신호)
   recentCommitMessages: string[];
   inferenceNotes: string[]; // 규칙 기반 추론 메모
   analysisConfidence: ReadmeReliabilityLevel; // README + structure 종합

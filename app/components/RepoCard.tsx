@@ -7,6 +7,7 @@ import { ReliabilityBadge } from "./ReliabilityBadge";
 import { TechChip } from "./TechChip";
 import CopyButton from "./CopyButton";
 import InfoTooltip from "./InfoTooltip";
+import { groupTechStack } from "@/lib/techStack";
 import type { AnalyzedRepo } from "@/lib/types";
 
 function formatDate(value: string): string {
@@ -95,9 +96,16 @@ export default function RepoCard({ repo }: { repo: AnalyzedRepo }) {
       )}
 
       {repo.techStack.length > 0 && (
-        <div className="flex flex-wrap gap-1.5">
-          {repo.techStack.slice(0, 10).map((tech) => (
-            <TechChip key={tech} name={tech} />
+        <div className="space-y-1.5">
+          {groupTechStack(repo.techStack.slice(0, 12)).map((group) => (
+            <div key={group.category} className="flex flex-wrap items-center gap-1.5">
+              <span className="w-[4.5rem] shrink-0 text-[10px] font-medium uppercase tracking-wide text-muted-foreground/70">
+                {group.category}
+              </span>
+              {group.items.map((tech) => (
+                <TechChip key={tech} name={tech} />
+              ))}
+            </div>
           ))}
         </div>
       )}

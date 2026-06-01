@@ -108,7 +108,7 @@ const LLM_TEMPERATURE = parseTemperature();
 
 // 프롬프트 버전. 프롬프트 본문 또는 호출 파라미터 형태가 바뀌면 이 문자열을 올려
 // seed 와 캐시(buildAnalyzeCacheKey 는 별도지만 분석 결과 자체 캐시) 가 자동으로 무효화되도록 한다.
-const PROMPT_VERSION = "v6-deeper-interview-2026-06-01";
+const PROMPT_VERSION = "v7-core-assets-2026-06-02";
 
 // 내부적으로 실제 호출에 쓰이는 해석된 설정.
 // - 외부 LlmConfig 와 환경 변수를 합쳐 만든다.
@@ -184,6 +184,8 @@ export type RepoReportInput = {
   languages: string[];
   tech_stack: string[];
   structure_summary: string[];
+  file_tree: string[]; // 정제한 재귀 파일 경로 (파일명 자체가 아키텍처 신호)
+  env_keys: string[]; // .env 예시 변수 이름 (외부 연동/서비스 신호, 값 없음)
   recent_commits: string[];
   inference_notes: string[];
 };
@@ -235,6 +237,8 @@ export function buildRepoReportInputs(repos: AnalyzedRepo[]): RepoReportInput[] 
     languages: repo.language ? [repo.language] : [],
     tech_stack: repo.techStack,
     structure_summary: repo.structureSummary.slice(0, 8),
+    file_tree: (repo.fileTreeSummary ?? []).slice(0, 40),
+    env_keys: (repo.envKeys ?? []).slice(0, 25),
     recent_commits: selectMeaningfulCommits(repo.recentCommitMessages),
     inference_notes: repo.inferenceNotes,
   }));
@@ -345,8 +349,26 @@ const REPO_SYSTEM_PROMPT = `당신은 GitHub 저장소 분석 결과를 이력�
 
 [표현 원칙]
 - 단정 금지. "Next.js 프로젝트입니다" → "구조와 설정 파일 기준 Next.js 기반으로 추정됩니다" 처럼 추정형 사용.
-- 입력의 tech_stack / structure_summary / recent_commits / description 에 없는 기능은 절대 만들지 말 것.
+- 입력의 tech_stack / structure_summary / file_tree / env_keys / recent_commits / description 에 없는 기능은 절대 만들지 말 것.
 - readme_reliability 가 "low" 또는 "missing" 이면 표현을 한 단계 더 보수적으로.
+
+[핵심 기술 자산 우선 식별 — 가장 중요]
+- 커밋 메시지나 설정 도구(ESLint, Husky 등)는 부차적 신호다. 먼저 "이 프로젝트의 핵심 기술 자산"을 짚어라.
+- 핵심 자산 후보(우선순위 순):
+  1) env_keys 가 드러내는 외부 연동/서비스. 예:
+     - OPENAI_API_KEY / ANTHROPIC_API_KEY / *_LLM_* / MINDLOGIC_* → "LLM API 연동"
+     - DATABASE_URL / POSTGRES_* / SUPABASE_* / MONGO_* → "데이터베이스 연동"
+     - NEXTAUTH_* / *_CLIENT_ID / *_CLIENT_SECRET / JWT_* → "인증/OAuth"
+     - STRIPE_* / *_PAYMENT_* → "결제 연동"
+     - AWS_* / S3_* / CLOUDINARY_* → "스토리지/클라우드 연동"
+  2) file_tree 의 파일·디렉토리 이름이 드러내는 아키텍처. 예:
+     - llm.ts / prompt*.ts / agents/ → "LLM/프롬프트 처리 로직"
+     - api/ / route.ts / server/ → "서버/API 레이어"
+     - cache.ts / queue.ts / worker.ts → "캐시/비동기 처리"
+     - scoring.ts / analyze.ts 등 도메인 파일 → 해당 도메인 로직
+  3) tech_stack / languages 의 프레임워크.
+- project_summary, core_features, portfolio_sentence, resume_bullets 는 위 핵심 자산을 반드시 우선 반영하라
+  (예: 설정 도구보다 "LLM API 연동" 이 먼저 와야 함). 단, 입력에 근거가 없으면 추측하지 말 것.
 
 [필드별 고정 규칙]
 - repo_name: 입력 repo_name 을 그대로 사용. 변형 금지.
@@ -367,6 +389,7 @@ const REPO_SYSTEM_PROMPT = `당신은 GitHub 저장소 분석 결과를 이력�
 - interview_questions:
   - 정확히 2개. 각 80자 이내.
   - 실제 기술 면접에서 나올 법한 심화 질문으로 작성: 기술 선택의 이유·트레이드오프, 설계/아키텍처 결정, 성능·확장성·테스트·에러 처리 전략 등.
+  - 위에서 식별한 핵심 기술 자산(env_keys / file_tree 가 드러내는 외부 연동·아키텍처)을 우선 소재로 삼아라. (예: LLM 연동이면 프롬프트 설계·비용·환각 제어, 인증이면 토큰 저장·세션 전략 등)
   - tech_stack / structure_summary / 도메인 신호에 근거하되, recent_commits 나 resume_bullets 문구를 그대로 되묻지 말 것 (단순 사실 확인 질문 금지).
   - 입력에 없는 기능·기술은 가정하지 말 것. 근거가 약하면 일반적인 설계 질문으로 작성.
   - "~ 이유는 무엇인가요?" / "~ 어떻게 설계했나요?" / "~ 에 대해 설명해 주세요." 중 하나로 끝낼 것.
@@ -376,8 +399,8 @@ const REPO_SYSTEM_PROMPT = `당신은 GitHub 저장소 분석 결과를 이력�
   - "low" / "missing" 이면 "low" 또는 "missing".
 
 [예시 응답]
-입력 예: { "repos": [ { "repo_name":"focusdash", "description":"productivity dashboard", "readme_reliability":"medium", "languages":["TypeScript"], "tech_stack":["Next.js","React","Tailwind CSS","Zustand"], "structure_summary":["src/app","components","shared","store"], "recent_commits":["feat: add notification popover","refactor: move header to layout","fix: toast UI rendering issue"], "inference_notes":["설정 파일 기준 프론트엔드 웹앱으로 추정"] } ] }
-출력 예: {"reports":[{"repo_name":"focusdash","project_summary":"구조와 설정 파일 기준 Next.js 기반 생산성 대시보드 웹앱으로 추정되는 프로젝트입니다.","core_features":["알림 센터","대시보드 화면","상태 관리"],"portfolio_sentence":"Next.js 와 Zustand 를 활용해 생산성 대시보드의 주요 UI 와 상태 관리 구조를 구현했습니다.","resume_bullets":["대시보드형 생산성 웹앱의 프론트엔드 화면을 구현했음","알림 센터 컴포넌트와 라우팅 구조를 구성했음","공용 컴포넌트와 상태 store 폴더 구조를 정리했음"],"interview_questions":["전역 상태 관리로 Context API 가 아닌 Zustand 를 택한 이유와 트레이드오프는 무엇인가요?","위젯이 늘어나는 대시보드에서 상태 구조와 리렌더링 성능을 어떻게 설계하셨나요?"],"confidence":"medium"}]}`;
+입력 예: { "repos": [ { "repo_name":"resume-gen", "description":"GitHub 분석 이력서 생성기", "readme_reliability":"medium", "languages":["TypeScript"], "tech_stack":["Next.js","React","Tailwind CSS"], "structure_summary":["app","lib","components"], "file_tree":["lib/llm.ts","lib/analyze.ts","lib/scoring.ts","lib/github.ts","app/api/analyze/route.ts","app/components/Dashboard.tsx"], "env_keys":["OPENAI_API_KEY","MINDLOGIC_API_KEY","NEXTAUTH_SECRET","GITHUB_CLIENT_ID"], "recent_commits":["feat: add notification popover","chore: setup husky","fix: toast UI"], "inference_notes":["환경 변수 예시 기준 외부 연동 추정: OPENAI_API_KEY, MINDLOGIC_API_KEY, NEXTAUTH_SECRET"] } ] }
+출력 예: {"reports":[{"repo_name":"resume-gen","project_summary":"구조와 환경 변수 예시 기준 LLM API 연동과 GitHub OAuth 를 다루는 Next.js 분석 서비스로 추정되는 프로젝트입니다.","core_features":["LLM 리포트 생성","GitHub OAuth","저장소 분석 파이프라인"],"portfolio_sentence":"Next.js 환경에서 LLM API 연동과 GitHub OAuth 인증을 결합해 저장소 분석·리포트 생성 파이프라인을 구현했습니다.","resume_bullets":["LLM API 를 연동한 분석 리포트 생성 파이프라인을 구현했음","GitHub OAuth 기반 인증과 데이터 수집 흐름을 구성했음","점수 산출과 분석 로직을 lib 모듈로 분리해 정리했음"],"interview_questions":["LLM 응답의 결정성과 환각을 통제하기 위해 프롬프트와 파라미터를 어떻게 설계하셨나요?","외부 LLM API 호출의 비용과 지연을 고려해 캐싱·호출 범위를 어떻게 설계하셨는지 설명해 주세요."],"confidence":"medium"}]}`;
 
 // === 호출 헬퍼 ===
 // OpenAI 호환 Chat Completions 스펙을 따르는 엔드포인트를 모두 같은 함수로 호출한다.

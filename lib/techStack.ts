@@ -192,6 +192,147 @@ export function extractRepoTechStack(repo: GitHubRepo, deep: DeepRepoData | null
     .map(([stack]) => stack);
 }
 
+// === 기술 스택 범주화 ===
+// 뱃지가 언어/프레임워크/ML/도구 등으로 섞여 한 줄에 나열되면 읽기 어렵다.
+// 표시 단계에서 범주별로 묶어 가독성을 높인다. (점수/추출 로직과는 무관)
+
+export type TechCategory =
+  | "언어"
+  | "프론트엔드"
+  | "백엔드"
+  | "데이터·ML"
+  | "데이터베이스"
+  | "모바일"
+  | "테스트"
+  | "인프라·도구"
+  | "기타";
+
+const CATEGORY_ORDER: TechCategory[] = [
+  "언어",
+  "프론트엔드",
+  "백엔드",
+  "데이터·ML",
+  "데이터베이스",
+  "모바일",
+  "테스트",
+  "인프라·도구",
+  "기타",
+];
+
+// extractRepoTechStack 가 만들어내는 정규화된 스택 이름 → 범주 매핑.
+const STACK_CATEGORY: Record<string, TechCategory> = {
+  // 언어
+  TypeScript: "언어",
+  Java: "언어",
+  Kotlin: "언어",
+  Scala: "언어",
+  // 프론트엔드
+  "Next.js": "프론트엔드",
+  React: "프론트엔드",
+  Vue: "프론트엔드",
+  Nuxt: "프론트엔드",
+  Svelte: "프론트엔드",
+  Angular: "프론트엔드",
+  "Tailwind CSS": "프론트엔드",
+  Emotion: "프론트엔드",
+  "Styled Components": "프론트엔드",
+  Zustand: "프론트엔드",
+  Redux: "프론트엔드",
+  "Redux Toolkit": "프론트엔드",
+  Recoil: "프론트엔드",
+  "React Query": "프론트엔드",
+  SWR: "프론트엔드",
+  "Three.js": "프론트엔드",
+  // 백엔드
+  Express: "백엔드",
+  Koa: "백엔드",
+  NestJS: "백엔드",
+  Fastify: "백엔드",
+  Django: "백엔드",
+  FastAPI: "백엔드",
+  Flask: "백엔드",
+  Uvicorn: "백엔드",
+  "Spring Boot": "백엔드",
+  Spring: "백엔드",
+  Celery: "백엔드",
+  // 데이터·ML
+  pandas: "데이터·ML",
+  NumPy: "데이터·ML",
+  "scikit-learn": "데이터·ML",
+  TensorFlow: "데이터·ML",
+  PyTorch: "데이터·ML",
+  Transformers: "데이터·ML",
+  LangChain: "데이터·ML",
+  "OpenAI SDK": "데이터·ML",
+  Jupyter: "데이터·ML",
+  // 데이터베이스
+  Prisma: "데이터베이스",
+  TypeORM: "데이터베이스",
+  Mongoose: "데이터베이스",
+  Sequelize: "데이터베이스",
+  SQLAlchemy: "데이터베이스",
+  // 모바일
+  "React Native": "모바일",
+  Expo: "모바일",
+  Flutter: "모바일",
+  "Mobile Native": "모바일",
+  // 테스트
+  Jest: "테스트",
+  Vitest: "테스트",
+  Playwright: "테스트",
+  Cypress: "테스트",
+  pytest: "테스트",
+  // 인프라·도구
+  Docker: "인프라·도구",
+  "GitHub Actions": "인프라·도구",
+  Electron: "인프라·도구",
+};
+
+// languages API / repo.language 로 들어올 수 있는 언어들 (매핑에 없으면 "언어"로 분류).
+const LANGUAGE_NAMES = new Set<string>([
+  "JavaScript",
+  "Python",
+  "Go",
+  "Rust",
+  "Ruby",
+  "PHP",
+  "C",
+  "C++",
+  "C#",
+  "Swift",
+  "Dart",
+  "Objective-C",
+  "HTML",
+  "CSS",
+  "SCSS",
+  "Shell",
+  "PowerShell",
+  "Lua",
+  "R",
+  "MATLAB",
+  "Vimscript",
+  "Dockerfile",
+]);
+
+export function categorizeTech(stack: string): TechCategory {
+  return STACK_CATEGORY[stack] ?? (LANGUAGE_NAMES.has(stack) ? "언어" : "기타");
+}
+
+// 스택 목록을 범주별로 묶는다. 입력 순서(weight 정렬)는 각 범주 안에서 유지된다.
+export function groupTechStack(stacks: string[]): Array<{ category: TechCategory; items: string[] }> {
+  const buckets = new Map<TechCategory, string[]>();
+  for (const stack of stacks) {
+    const category = categorizeTech(stack);
+    const list = buckets.get(category);
+    if (list) list.push(stack);
+    else buckets.set(category, [stack]);
+  }
+  return CATEGORY_ORDER.filter((category) => buckets.has(category)).map((category) => ({
+    category,
+    items: buckets.get(category) as string[],
+  }));
+}
+
 // 사용자 전체 기술 스택 분포 집계
 export function aggregateTechStackDistribution(
   repoStacks: string[][],

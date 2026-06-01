@@ -139,6 +139,10 @@ function buildAnalyzedRepo(base: ScoredRepo, deep: DeepRepoData | null): Analyze
     .map((e) => e.path)
     .slice(0, 12);
 
+  // 핵심 자산 식별용: 정제한 재귀 파일 경로(파일명 자체가 아키텍처 신호) + .env 예시 변수명.
+  const fileTreeSummary = (deep?.fileTree ?? []).slice(0, 40);
+  const envKeys = (deep?.envKeys ?? []).slice(0, 25);
+
   const recentCommitMessages = (deep?.commits ?? []).map((c) => c.message).filter(Boolean);
 
   // 규칙 기반 추론 메모: 어떤 신호를 가지고 어떤 결론을 냈는지 LLM에 전달하는 단서.
@@ -162,6 +166,10 @@ function buildAnalyzedRepo(base: ScoredRepo, deep: DeepRepoData | null): Analyze
   if (rootEntryCount === 0) {
     inferenceNotes.push("루트 트리 정보를 가져오지 못해 구조 분석 신뢰도 낮음");
   }
+  // .env 예시의 변수명은 의존성으로는 안 잡히는 외부 연동(LLM/DB/인증/결제 등)을 드러낸다.
+  if (envKeys.length > 0) {
+    inferenceNotes.push(`환경 변수 예시 기준 외부 연동 추정: ${envKeys.slice(0, 5).join(", ")}`);
+  }
 
   const analysisConfidence: AnalyzedRepo["analysisConfidence"] =
     readmeReliability.level === "missing"
@@ -175,6 +183,8 @@ function buildAnalyzedRepo(base: ScoredRepo, deep: DeepRepoData | null): Analyze
     readmeReliability,
     techStack,
     structureSummary,
+    fileTreeSummary,
+    envKeys,
     recentCommitMessages,
     inferenceNotes,
     analysisConfidence,
