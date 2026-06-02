@@ -206,17 +206,24 @@ export default function Sidebar({
                   <input
                     id="guest-gh-token"
                     name="gh-pat"
-                    type={showGuestToken ? "text" : "password"}
+                    // type="password" 는 브라우저가 비밀번호 필드로 인식해 저장/자동완성을 제안한다.
+                    // 항상 type="text" 로 두고, 가릴 때는 CSS(-webkit-text-security)로만 마스킹해
+                    // 브라우저/비번 매니저가 자격증명 input 으로 인식하지 못하게 한다.
+                    type="text"
+                    inputMode="text"
                     value={guestGithubToken ?? ""}
                     onChange={(e) => onGuestGithubTokenChange(e.target.value)}
                     placeholder="ghp_..."
-                    // password 타입은 저장된 비밀번호 자동완성을 부른다.
-                    // new-password 로 선언해 자동완성/자격증명 저장을 막고, 비번 매니저도 무시시킨다.
-                    autoComplete="new-password"
+                    autoComplete="off"
                     data-1p-ignore="true"
                     data-lpignore="true"
                     data-form-type="other"
                     spellCheck={false}
+                    style={
+                      showGuestToken
+                        ? undefined
+                        : ({ WebkitTextSecurity: "disc", textSecurity: "disc" } as React.CSSProperties)
+                    }
                     className="flex-1 bg-input-background border border-border rounded-md px-2 py-1.5 text-[11px] font-mono text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all"
                   />
                   <button
@@ -444,14 +451,26 @@ export default function Sidebar({
                   <div className="flex gap-1">
                     <input
                       id="llm-key"
-                      type={showApiKey ? "text" : "password"}
+                      name="llm-key"
+                      // type="password" 를 피하고 CSS 마스킹만 사용해 브라우저가
+                      // 비밀번호 input 으로 인식/저장하지 않도록 한다.
+                      type="text"
+                      inputMode="text"
                       value={llmConfig.apiKey ?? ""}
                       onChange={(e) =>
                         onLlmConfigChange({ ...llmConfig, apiKey: e.target.value })
                       }
                       placeholder="sk-..."
                       autoComplete="off"
+                      data-1p-ignore="true"
+                      data-lpignore="true"
+                      data-form-type="other"
                       spellCheck={false}
+                      style={
+                        showApiKey
+                          ? undefined
+                          : ({ WebkitTextSecurity: "disc", textSecurity: "disc" } as React.CSSProperties)
+                      }
                       className="flex-1 bg-input-background border border-border rounded-md px-2 py-1.5 text-[11px] font-mono text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all"
                     />
                     <button
