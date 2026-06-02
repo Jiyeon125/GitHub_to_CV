@@ -7,6 +7,7 @@ import { useSession } from "next-auth/react";
 import Sidebar from "./components/Sidebar";
 import Dashboard from "./components/Dashboard";
 import LoadingProgress from "./components/LoadingProgress";
+import FeedbackButton from "./components/FeedbackButton";
 import type { AnalyzeResponse, AnalyzeStage, AnalyzeStreamEvent, LlmConfig } from "@/lib/types";
 
 // LLM 설정 기본값: 가장 안정적인 GPT 프리셋
@@ -216,18 +217,21 @@ export default function Home() {
               </button>
             ))}
           </div>
-          {result ? (
-            <PdfDownloadButton data={result} disabled={loading} />
-          ) : (
-            <button
-              type="button"
-              disabled
-              className="flex items-center gap-2 px-3 py-1.5 text-xs border border-border rounded-md text-muted-foreground transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <FileDown className="w-3.5 h-3.5" />
-              PDF 파일 다운로드
-            </button>
-          )}
+          <div className="flex items-center gap-2 flex-wrap">
+            <FeedbackButton />
+            {result ? (
+              <PdfDownloadButton data={result} disabled={loading} />
+            ) : (
+              <button
+                type="button"
+                disabled
+                className="flex items-center gap-2 px-3 py-1.5 text-xs border border-border rounded-md text-muted-foreground transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <FileDown className="w-3.5 h-3.5" />
+                PDF 파일 다운로드
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Main Content */}
