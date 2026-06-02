@@ -265,7 +265,13 @@ LLM에는 raw code가 아니라 요약 feature만 들어갑니다.
 - 학내 발급 키 하나로 GPT / Claude / Gemini 계열 모델을 자유롭게 교체해 비교 가능
 - 기존 OpenAI SDK 호출 형식을 그대로 사용 → base URL 만 교체하면 됨
 
-> 경량 모델(mini / nano / flash)은 JSON 출력 규약과 어휘 화이트리스트를 어기기 쉬워, 프리셋에는 상위 모델만 노출하도록 설계했습니다(프리셋에서 제외). 필요하면 "직접 입력 (Custom)" 에서 사용할 수 있습니다.
+> 경량 모델(mini / nano / flash)은 본 프롬프트의 형식 제약을 어기기 쉬워, 프리셋에는 상위 모델만 노출하도록 설계했습니다(프리셋에서 제외). 필요하면 "직접 입력 (Custom)" 에서 사용할 수 있습니다.
+>
+> 내부 비교 테스트(2026-06-02, `node scripts/llm-format-benchmark.mjs`, 동일 입력 12건):
+> - `gpt-5.4` 스키마 준수율 `8/12`
+> - `gpt-5.4-mini` 스키마 준수율 `5/12`
+> - `gpt-5.4-nano` 스키마 준수율 `1/12`
+> - (참고) `gemini-2.5-pro/flash` 는 응답을 Markdown code fence로 감싸 strict JSON 규약 `0/12` (복구 파서로는 12/12 파싱)
 
 ---
 
